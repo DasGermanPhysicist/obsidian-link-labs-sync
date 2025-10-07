@@ -7,6 +7,7 @@ export interface PluginSettings {
   backgroundSync: boolean;
   concurrency: number; // for future use
   maxPagesPerSite: number; // cap pagination per site
+  syncAreas?: boolean; // enable/disable syncing of Areas
 }
 
 export interface Credentials {
@@ -38,4 +39,26 @@ export interface SyncSummary {
   updated: number;
   unchanged: number;
   errors: number;
+}
+
+export interface Area {
+  id?: string | null;
+  type?: string | null;
+  value?: string | null; // display name
+  assetInfo?: {
+    metadata?: {
+      props?: {
+        areaLocation?: string | null; // "indoor" | "outdoor"
+        geoReferenced?: string | boolean | null;
+        indoorMapping?: string | null;
+        locationCount?: string | number | null;
+        name?: string | null; // often same as value
+        points?: string | null; // "lon,lat;lon,lat;..."
+        siteId?: string | null;
+        zoneCount?: string | number | null;
+      } | null;
+      tags?: any[];
+    } | null;
+    enabled?: boolean;
+  } | null;
 }

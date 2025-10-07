@@ -1,8 +1,49 @@
-import type { Asset } from './types';
+import type { Asset, Area } from './types';
 
 function val(v: any): string {
   if (v === null || v === undefined) return '';
   return String(v);
+}
+
+export function areaToMarkdown(area: Area, siteId: string): string {
+  const props = area?.assetInfo?.metadata?.props || {} as any;
+  const areaLocation = val(props.areaLocation);
+  const zoneCount = val(props.zoneCount);
+  const name = val(area.value || props.name || area.id || 'area');
+  const points = String(props.points || '').trim();
+
+  // location handling for outdoor: take first tuple from points if present
+  let locationVal = '';
+  if ((areaLocation || '').toLowerCase() === 'outdoor' && points) {
+    const first = points.split(';')[0]?.trim();
+    if (/^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(first || '')) {
+      const [lonStr, latStr] = first.split(',');
+      const lon = (lonStr ?? '').trim();
+      const lat = (latStr ?? '').trim();
+      // Emit as lat,lon per requirement
+      locationVal = `${lat},${lon}`;
+    }
+  }
+
+  const lines = [
+    '---',
+    `location: "${locationVal}"`,
+    `LL_areaname: ${name}`,
+    `LL_areaLocation: ${areaLocation}`,
+    `LL_zoneCount: ${zoneCount}`,
+    `LL_siteId: ${val(siteId)}`,
+    '---',
+    '',
+    '#LL_area',
+    '',
+  ];
+  return lines.join('\n');
+}
+
+export function chooseAreaFileName(area: Area): string {
+  const props = area?.assetInfo?.metadata?.props || {} as any;
+  const base = (area.value || props.name || area.id || 'area') as string;
+  return sanitizeFileName(base);
 }
 
 function normalizeIsoAssumeUtc(input: any): string | any {

@@ -1,7 +1,7 @@
 import { App, Notice, normalizePath } from 'obsidian';
 import type { Asset, Credentials, PluginSettings, SyncSummary } from './types';
-import { fetchAssetsForSite, fetchSiteInfo } from './api';
-import { assetToMarkdown, chooseBaseFileName } from './mapping';
+import { fetchAssetsForSite, fetchSiteInfo, fetchAreasForSite } from './api';
+import { assetToMarkdown, chooseBaseFileName, areaToMarkdown, chooseAreaFileName } from './mapping';
 import { ensureFolder, writeFileIfChanged } from './fs';
 
 export async function syncAll(app: App, settings: PluginSettings): Promise<SyncSummary[]> {
@@ -32,10 +32,38 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
         new Notice(`Link Labs Sync: no assets returned for site ${siteId}`);
       }
 
-      // Ensure site folder exists
+      // Ensure site folder exists (used for assets and areas)
       const siteFolder = normalizePath(`${outputFolder}/${siteId}`);
       await ensureFolder(app, outputFolder); // root
       await ensureFolder(app, siteFolder);
+
+      // Fetch and write Areas (optional)
+      if (settings.syncAreas ?? true) {
+        try {
+          const areas = await fetchAreasForSite(siteId, creds);
+          if (areas.length) {
+            const areasFolder = normalizePath(`${siteFolder}/Areas`);
+            await ensureFolder(app, areasFolder);
+            for (const area of areas) {
+              try {
+                const md = areaToMarkdown(area, siteId);
+                const base = chooseAreaFileName(area);
+                const filePath = normalizePath(`${areasFolder}/${base}.md`);
+                const result = await writeFileIfChanged(app, filePath, md);
+                if (result === 'created') summary.created += 1;
+                else if (result === 'updated') summary.updated += 1;
+                else summary.unchanged += 1;
+              } catch (e) {
+                console.error('Link Labs Sync: failed to write an area note', e);
+                summary.errors += 1;
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Link Labs Sync: error fetching areas', e);
+          summary.errors += 1;
+        }
+      }
 
       for (const asset of assets) {
         try {

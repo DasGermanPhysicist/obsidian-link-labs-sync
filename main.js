@@ -38,7 +38,8 @@ var DEFAULT_SETTINGS = {
   scheduleMinutes: 60,
   backgroundSync: true,
   concurrency: 2,
-  maxPagesPerSite: 1
+  maxPagesPerSite: 1,
+  syncAreas: true
 };
 var LinkLabsSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
@@ -71,6 +72,12 @@ var LinkLabsSettingTab = class extends import_obsidian.PluginSettingTab {
     new import_obsidian.Setting(containerEl).setName("Output folder").setDesc("Folder under your vault where notes will be written").addText(
       (text) => text.setPlaceholder("LinkLabs").setValue(this.plugin.settings.outputFolder).onChange(async (value) => {
         this.plugin.settings.outputFolder = value.trim() || "LinkLabs";
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Sync Areas").setDesc("Also fetch and write Area notes under each site").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.syncAreas ?? true).onChange(async (value) => {
+        this.plugin.settings.syncAreas = value;
         await this.plugin.saveSettings();
       })
     );
@@ -110,10 +117,31 @@ var import_obsidian4 = require("obsidian");
 var import_obsidian2 = require("obsidian");
 var BASE_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/v4/tags";
 var SITE_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/site";
+var AREAS_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/areas";
 function basicAuthHeader({ username, password }) {
   const toBase64 = (s) => typeof btoa === "function" ? btoa(s) : Buffer.from(s, "utf8").toString("base64");
   const token = toBase64(`${username}:${password}`);
   return `Basic ${token}`;
+}
+async function fetchAreasForSite(siteId, creds) {
+  const url = `${AREAS_URL}?siteId=${encodeURIComponent(siteId)}`;
+  const headers = {
+    Authorization: basicAuthHeader(creds),
+    Accept: "application/json"
+  };
+  const res = await requestWithRetry(url, headers, { method: "GET" });
+  if (res.status >= 400) {
+    console.warn(`Link Labs Sync: areas ${res.status} for ${siteId}`);
+    return [];
+  }
+  let data = null;
+  try {
+    data = typeof res.json === "function" ? await res.json() : JSON.parse(res.text || "[]");
+  } catch (e) {
+    data = [];
+  }
+  const list = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.data) ? data.data : [];
+  return list;
 }
 async function fetchSiteInfo(siteId, creds) {
   const url = `${SITE_URL}/${encodeURIComponent(siteId)}`;
@@ -205,6 +233,41 @@ function delayMsWithJitter(base) {
 function val(v) {
   if (v === null || v === void 0) return "";
   return String(v);
+}
+function areaToMarkdown(area, siteId) {
+  const props = area?.assetInfo?.metadata?.props || {};
+  const areaLocation = val(props.areaLocation);
+  const zoneCount = val(props.zoneCount);
+  const name = val(area.value || props.name || area.id || "area");
+  const points = String(props.points || "").trim();
+  let locationVal = "";
+  if ((areaLocation || "").toLowerCase() === "outdoor" && points) {
+    const first = points.split(";")[0]?.trim();
+    if (/^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(first || "")) {
+      const [lonStr, latStr] = first.split(",");
+      const lon = (lonStr ?? "").trim();
+      const lat = (latStr ?? "").trim();
+      locationVal = `${lat},${lon}`;
+    }
+  }
+  const lines = [
+    "---",
+    `location: "${locationVal}"`,
+    `LL_areaname: ${name}`,
+    `LL_areaLocation: ${areaLocation}`,
+    `LL_zoneCount: ${zoneCount}`,
+    `LL_siteId: ${val(siteId)}`,
+    "---",
+    "",
+    "#LL_area",
+    ""
+  ];
+  return lines.join("\n");
+}
+function chooseAreaFileName(area) {
+  const props = area?.assetInfo?.metadata?.props || {};
+  const base = area.value || props.name || area.id || "area";
+  return sanitizeFileName(base);
 }
 function normalizeIsoAssumeUtc(input) {
   if (typeof input === "string") {
@@ -336,6 +399,32 @@ async function syncAll(app, settings) {
       const siteFolder = (0, import_obsidian4.normalizePath)(`${outputFolder}/${siteId}`);
       await ensureFolder(app, outputFolder);
       await ensureFolder(app, siteFolder);
+      if (settings.syncAreas ?? true) {
+        try {
+          const areas = await fetchAreasForSite(siteId, creds);
+          if (areas.length) {
+            const areasFolder = (0, import_obsidian4.normalizePath)(`${siteFolder}/Areas`);
+            await ensureFolder(app, areasFolder);
+            for (const area of areas) {
+              try {
+                const md = areaToMarkdown(area, siteId);
+                const base = chooseAreaFileName(area);
+                const filePath = (0, import_obsidian4.normalizePath)(`${areasFolder}/${base}.md`);
+                const result = await writeFileIfChanged(app, filePath, md);
+                if (result === "created") summary.created += 1;
+                else if (result === "updated") summary.updated += 1;
+                else summary.unchanged += 1;
+              } catch (e) {
+                console.error("Link Labs Sync: failed to write an area note", e);
+                summary.errors += 1;
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Link Labs Sync: error fetching areas", e);
+          summary.errors += 1;
+        }
+      }
       for (const asset of assets) {
         try {
           asset.siteId = siteId;

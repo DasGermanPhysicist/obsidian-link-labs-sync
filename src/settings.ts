@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   backgroundSync: true,
   concurrency: 2,
   maxPagesPerSite: 1,
+  syncAreas: true,
 };
 
 export class LinkLabsSettingTab extends PluginSettingTab {
@@ -82,6 +83,16 @@ export class LinkLabsSettingTab extends PluginSettingTab {
             this.plugin.settings.outputFolder = value.trim() || 'LinkLabs';
             await this.plugin.saveSettings();
           })
+      );
+
+    new Setting(containerEl)
+      .setName('Sync Areas')
+      .setDesc('Also fetch and write Area notes under each site')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.syncAreas ?? true).onChange(async (value) => {
+          this.plugin.settings.syncAreas = value;
+          await this.plugin.saveSettings();
+        })
       );
 
     new Setting(containerEl)

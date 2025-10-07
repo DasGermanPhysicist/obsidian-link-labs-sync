@@ -1,14 +1,43 @@
 import { requestUrl } from 'obsidian';
-import type { Asset, Credentials } from './types';
+import type { Asset, Credentials, Area } from './types';
 
 const BASE_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/v4/tags';
 const SITE_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/site';
+const AREAS_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/areas';
 
 function basicAuthHeader({ username, password }: Credentials): string {
   // Obsidian renderer should have btoa; add fallback for safety
   const toBase64 = (s: string) => (typeof btoa === 'function' ? btoa(s) : Buffer.from(s, 'utf8').toString('base64'));
   const token = toBase64(`${username}:${password}`);
   return `Basic ${token}`;
+}
+
+export async function fetchAreasForSite(siteId: string, creds: Credentials): Promise<Area[]> {
+  const url = `${AREAS_URL}?siteId=${encodeURIComponent(siteId)}`;
+  const headers = {
+    Authorization: basicAuthHeader(creds),
+    Accept: 'application/json',
+  } as Record<string, string>;
+
+  const res = await requestWithRetry(url, headers, { method: 'GET' });
+  if (res.status >= 400) {
+    console.warn(`Link Labs Sync: areas ${res.status} for ${siteId}`);
+    return [];
+  }
+  let data: any = null;
+  try {
+    data = typeof res.json === 'function' ? await res.json() : JSON.parse(res.text || '[]');
+  } catch (e) {
+    data = [];
+  }
+  const list = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data?.data)
+    ? data.data
+    : [];
+  return list as Area[];
 }
 
 export async function fetchSiteInfo(siteId: string, creds: Credentials): Promise<{ siteName: string | null; orgName: string | null }> {
