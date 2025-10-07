@@ -26,6 +26,9 @@ export interface Asset {
   zoneName?: string | null;
   lastEventTime?: string | null;
   siteId?: string | null;
+  // Augmented fields from site metadata
+  siteName?: string | null;
+  orgName?: string | null;
   [key: string]: any;
 }
 

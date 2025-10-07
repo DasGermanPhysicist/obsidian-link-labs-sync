@@ -109,10 +109,32 @@ var import_obsidian4 = require("obsidian");
 // src/api.ts
 var import_obsidian2 = require("obsidian");
 var BASE_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/v4/tags";
+var SITE_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/site";
 function basicAuthHeader({ username, password }) {
   const toBase64 = (s) => typeof btoa === "function" ? btoa(s) : Buffer.from(s, "utf8").toString("base64");
   const token = toBase64(`${username}:${password}`);
   return `Basic ${token}`;
+}
+async function fetchSiteInfo(siteId, creds) {
+  const url = `${SITE_URL}/${encodeURIComponent(siteId)}`;
+  const headers = {
+    Authorization: basicAuthHeader(creds),
+    Accept: "application/json"
+  };
+  const res = await requestWithRetry(url, headers, { method: "GET" });
+  if (res.status >= 400) {
+    console.warn(`Link Labs Sync: site info ${res.status} for ${siteId}`);
+    return { siteName: null, orgName: null };
+  }
+  let data = null;
+  try {
+    data = typeof res.json === "function" ? await res.json() : JSON.parse(res.text || "null");
+  } catch (e) {
+    data = null;
+  }
+  const siteName = data?.value ?? null;
+  const orgName = data?.assetInfo?.metadata?.props?.organizationName ?? null;
+  return { siteName, orgName };
 }
 async function requestWithRetry(url, headers, options, maxRetries = 5) {
   let attempt = 0;
@@ -195,6 +217,8 @@ function assetToMarkdown(asset) {
   const zone = val(asset.zoneName);
   const lastEventTime = val(asset.lastEventTime);
   const siteId = val(asset.siteId);
+  const siteName = val(asset.siteName);
+  const orgName = val(asset.orgName);
   const lines = [
     "---",
     `location: ${latitude},${longitude}`,
@@ -206,6 +230,8 @@ function assetToMarkdown(asset) {
     `LL_zoneName: ${zone}`,
     `LL_lastEventTime: ${lastEventTime}`,
     `LL_siteId: ${siteId}`,
+    `LL_sitename: ${siteName}`,
+    `LL_orgname: ${orgName}`,
     "---",
     "",
     "#ll_asset",
@@ -269,6 +295,7 @@ async function syncAll(app, settings) {
       console.log("Link Labs Sync: fetching assets for site", { siteId });
       const assets = await fetchAssetsForSite(siteId, creds, settings.maxPagesPerSite ?? 1);
       console.log("Link Labs Sync: fetched count", { siteId, count: assets.length });
+      const { siteName, orgName } = await fetchSiteInfo(siteId, creds);
       if (assets.length === 0) {
         new import_obsidian4.Notice(`Link Labs Sync: no assets returned for site ${siteId}`);
       }
@@ -278,6 +305,8 @@ async function syncAll(app, settings) {
       for (const asset of assets) {
         try {
           asset.siteId = siteId;
+          asset.siteName = siteName ?? null;
+          asset.orgName = orgName ?? null;
           const md = assetToMarkdown(asset);
           const base = chooseBaseFileName(asset);
           const filePath = (0, import_obsidian4.normalizePath)(`${siteFolder}/${base}.md`);

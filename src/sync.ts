@@ -1,6 +1,6 @@
 import { App, Notice, normalizePath } from 'obsidian';
 import type { Asset, Credentials, PluginSettings, SyncSummary } from './types';
-import { fetchAssetsForSite } from './api';
+import { fetchAssetsForSite, fetchSiteInfo } from './api';
 import { assetToMarkdown, chooseBaseFileName } from './mapping';
 import { ensureFolder, writeFileIfChanged } from './fs';
 
@@ -26,6 +26,8 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
       console.log('Link Labs Sync: fetching assets for site', { siteId });
       const assets = await fetchAssetsForSite(siteId, creds, settings.maxPagesPerSite ?? 1);
       console.log('Link Labs Sync: fetched count', { siteId, count: assets.length });
+      // Fetch site metadata (siteName/orgName) once per site
+      const { siteName, orgName } = await fetchSiteInfo(siteId, creds);
       if (assets.length === 0) {
         new Notice(`Link Labs Sync: no assets returned for site ${siteId}`);
       }
@@ -39,6 +41,8 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
         try {
           // Ensure siteId is present in asset for frontmatter mapping
           (asset as Asset).siteId = siteId;
+          (asset as Asset).siteName = siteName ?? null;
+          (asset as Asset).orgName = orgName ?? null;
           const md = assetToMarkdown(asset);
           const base = chooseBaseFileName(asset);
           const filePath = normalizePath(`${siteFolder}/${base}.md`);

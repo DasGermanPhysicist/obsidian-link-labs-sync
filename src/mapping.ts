@@ -16,6 +16,8 @@ export function assetToMarkdown(asset: Asset): string {
   const zone = val(asset.zoneName);
   const lastEventTime = val(asset.lastEventTime);
   const siteId = val(asset.siteId);
+  const siteName = val(asset.siteName);
+  const orgName = val(asset.orgName);
 
   const lines = [
     '---',
@@ -28,6 +30,8 @@ export function assetToMarkdown(asset: Asset): string {
     `LL_zoneName: ${zone}`,
     `LL_lastEventTime: ${lastEventTime}`,
     `LL_siteId: ${siteId}`,
+    `LL_sitename: ${siteName}`,
+    `LL_orgname: ${orgName}`,
     '---',
     '',
     '#ll_asset',

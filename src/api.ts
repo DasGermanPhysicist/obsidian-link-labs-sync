@@ -2,12 +2,39 @@ import { requestUrl } from 'obsidian';
 import type { Asset, Credentials } from './types';
 
 const BASE_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/v4/tags';
+const SITE_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/site';
 
 function basicAuthHeader({ username, password }: Credentials): string {
   // Obsidian renderer should have btoa; add fallback for safety
   const toBase64 = (s: string) => (typeof btoa === 'function' ? btoa(s) : Buffer.from(s, 'utf8').toString('base64'));
   const token = toBase64(`${username}:${password}`);
   return `Basic ${token}`;
+}
+
+export async function fetchSiteInfo(siteId: string, creds: Credentials): Promise<{ siteName: string | null; orgName: string | null }> {
+  const url = `${SITE_URL}/${encodeURIComponent(siteId)}`;
+  const headers = {
+    Authorization: basicAuthHeader(creds),
+    Accept: 'application/json',
+  } as Record<string, string>;
+
+  const res = await requestWithRetry(url, headers, { method: 'GET' });
+  if (res.status >= 400) {
+    // Non-fatal: return nulls so sync can proceed
+    console.warn(`Link Labs Sync: site info ${res.status} for ${siteId}`);
+    return { siteName: null, orgName: null };
+  }
+
+  let data: any = null;
+  try {
+    data = typeof res.json === 'function' ? await res.json() : JSON.parse(res.text || 'null');
+  } catch (e) {
+    data = null;
+  }
+
+  const siteName = (data?.value ?? null) as string | null;
+  const orgName = (data?.assetInfo?.metadata?.props?.organizationName ?? null) as string | null;
+  return { siteName, orgName };
 }
 
 async function requestWithRetry(url: string, headers: Record<string, string>, options: { method?: string }, maxRetries = 5): Promise<ReturnType<typeof requestUrl>> {
