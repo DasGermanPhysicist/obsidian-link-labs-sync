@@ -86,8 +86,8 @@ export class LinkLabsSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('Sync Areas')
-      .setDesc('Also fetch and write Area notes under each site')
+      .setName('Sync Areas & Zones')
+      .setDesc('Also fetch and write Area notes and their child Zone notes under each site')
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.syncAreas ?? true).onChange(async (value) => {
           this.plugin.settings.syncAreas = value;

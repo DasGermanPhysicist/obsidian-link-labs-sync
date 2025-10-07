@@ -1,7 +1,7 @@
 import { App, Notice, normalizePath } from 'obsidian';
 import type { Asset, Credentials, PluginSettings, SyncSummary } from './types';
-import { fetchAssetsForSite, fetchSiteInfo, fetchAreasForSite } from './api';
-import { assetToMarkdown, chooseBaseFileName, areaToMarkdown, chooseAreaFileName } from './mapping';
+import { fetchAssetsForSite, fetchSiteInfo, fetchAreasForSite, fetchZonesForArea } from './api';
+import { assetToMarkdown, chooseBaseFileName, areaToMarkdown, chooseAreaFileName, zoneToMarkdown, chooseZoneFileName } from './mapping';
 import { ensureFolder, writeFileIfChanged } from './fs';
 
 export async function syncAll(app: App, settings: PluginSettings): Promise<SyncSummary[]> {
@@ -37,7 +37,7 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
       await ensureFolder(app, outputFolder); // root
       await ensureFolder(app, siteFolder);
 
-      // Fetch and write Areas (optional)
+      // Fetch and write Areas and Zones (optional)
       if (settings.syncAreas ?? true) {
         try {
           const areas = await fetchAreasForSite(siteId, creds);
@@ -46,13 +46,42 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
             await ensureFolder(app, areasFolder);
             for (const area of areas) {
               try {
-                const md = areaToMarkdown(area, siteId);
+                const md = areaToMarkdown(area, siteId, siteName, orgName);
                 const base = chooseAreaFileName(area);
                 const filePath = normalizePath(`${areasFolder}/${base}.md`);
                 const result = await writeFileIfChanged(app, filePath, md);
                 if (result === 'created') summary.created += 1;
                 else if (result === 'updated') summary.updated += 1;
                 else summary.unchanged += 1;
+
+                // Fetch and write Zones for this area
+                if (area.id) {
+                  try {
+                    const zones = await fetchZonesForArea(area.id, creds);
+                    if (zones.length) {
+                      const zonesFolder = normalizePath(`${areasFolder}/${base}_Zones`);
+                      await ensureFolder(app, zonesFolder);
+                      const areaLocation = area?.assetInfo?.metadata?.props?.areaLocation || undefined;
+                      for (const zone of zones) {
+                        try {
+                          const zoneMd = zoneToMarkdown(zone, siteId, areaLocation, siteName, orgName);
+                          const zoneBase = chooseZoneFileName(zone);
+                          const zoneFilePath = normalizePath(`${zonesFolder}/${zoneBase}.md`);
+                          const zoneResult = await writeFileIfChanged(app, zoneFilePath, zoneMd);
+                          if (zoneResult === 'created') summary.created += 1;
+                          else if (zoneResult === 'updated') summary.updated += 1;
+                          else summary.unchanged += 1;
+                        } catch (e) {
+                          console.error('Link Labs Sync: failed to write a zone note', e);
+                          summary.errors += 1;
+                        }
+                      }
+                    }
+                  } catch (e) {
+                    console.error(`Link Labs Sync: error fetching zones for area ${area.id}`, e);
+                    summary.errors += 1;
+                  }
+                }
               } catch (e) {
                 console.error('Link Labs Sync: failed to write an area note', e);
                 summary.errors += 1;

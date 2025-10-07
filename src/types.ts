@@ -62,3 +62,23 @@ export interface Area {
     enabled?: boolean;
   } | null;
 }
+
+export interface Zone {
+  id?: string | null;
+  type?: string | null;
+  value?: string | null; // display name
+  assetInfo?: {
+    metadata?: {
+      props?: {
+        areaId?: string | null;
+        name?: string | null; // often same as value
+        points?: string | null; // "lon,lat;lon,lat;..."
+        siteId?: string | null;
+        zoneCategoryId?: string | null;
+        zoneCategoryName?: string | null;
+      } | null;
+      tags?: any[];
+    } | null;
+    enabled?: boolean;
+  } | null;
+}

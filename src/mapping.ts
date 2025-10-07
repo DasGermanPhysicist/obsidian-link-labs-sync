@@ -1,11 +1,11 @@
-import type { Asset, Area } from './types';
+import type { Asset, Area, Zone } from './types';
 
 function val(v: any): string {
   if (v === null || v === undefined) return '';
   return String(v);
 }
 
-export function areaToMarkdown(area: Area, siteId: string): string {
+export function areaToMarkdown(area: Area, siteId: string, siteName?: string | null, orgName?: string | null): string {
   const props = area?.assetInfo?.metadata?.props || {} as any;
   const areaLocation = val(props.areaLocation);
   const zoneCount = val(props.zoneCount);
@@ -32,6 +32,8 @@ export function areaToMarkdown(area: Area, siteId: string): string {
     `LL_areaLocation: ${areaLocation}`,
     `LL_zoneCount: ${zoneCount}`,
     `LL_siteId: ${val(siteId)}`,
+    `LL_sitename: ${val(siteName)}`,
+    `LL_orgname: ${val(orgName)}`,
     '---',
     '',
     '#LL_area',
@@ -43,6 +45,49 @@ export function areaToMarkdown(area: Area, siteId: string): string {
 export function chooseAreaFileName(area: Area): string {
   const props = area?.assetInfo?.metadata?.props || {} as any;
   const base = (area.value || props.name || area.id || 'area') as string;
+  return sanitizeFileName(base);
+}
+
+export function zoneToMarkdown(zone: Zone, siteId: string, areaLocation?: string, siteName?: string | null, orgName?: string | null): string {
+  const props = zone?.assetInfo?.metadata?.props || {} as any;
+  const zoneCategoryName = val(props.zoneCategoryName);
+  const name = val(zone.value || props.name || zone.id || 'zone');
+  const points = String(props.points || '').trim();
+  const areaId = val(props.areaId);
+
+  // location handling for outdoor zones: take first tuple from points if present and area is outdoor
+  let locationVal = '';
+  if ((areaLocation || '').toLowerCase() === 'outdoor' && points) {
+    const first = points.split(';')[0]?.trim();
+    if (/^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(first || '')) {
+      const [lonStr, latStr] = first.split(',');
+      const lon = (lonStr ?? '').trim();
+      const lat = (latStr ?? '').trim();
+      // Emit as lat,lon per requirement
+      locationVal = `${lat},${lon}`;
+    }
+  }
+
+  const lines = [
+    '---',
+    `location: "${locationVal}"`,
+    `LL_zonename: ${name}`,
+    `LL_zoneCategoryName: ${zoneCategoryName}`,
+    `LL_areaId: ${areaId}`,
+    `LL_siteId: ${val(siteId)}`,
+    `LL_sitename: ${val(siteName)}`,
+    `LL_orgname: ${val(orgName)}`,
+    '---',
+    '',
+    '#LL_zone',
+    '',
+  ];
+  return lines.join('\n');
+}
+
+export function chooseZoneFileName(zone: Zone): string {
+  const props = zone?.assetInfo?.metadata?.props || {} as any;
+  const base = (zone.value || props.name || zone.id || 'zone') as string;
   return sanitizeFileName(base);
 }
 

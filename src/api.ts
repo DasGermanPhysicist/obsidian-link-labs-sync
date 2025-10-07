@@ -1,9 +1,10 @@
 import { requestUrl } from 'obsidian';
-import type { Asset, Credentials, Area } from './types';
+import type { Asset, Credentials, Area, Zone } from './types';
 
 const BASE_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/v4/tags';
 const SITE_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/site';
 const AREAS_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/areas';
+const ZONES_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/zones';
 
 function basicAuthHeader({ username, password }: Credentials): string {
   // Obsidian renderer should have btoa; add fallback for safety
@@ -38,6 +39,34 @@ export async function fetchAreasForSite(siteId: string, creds: Credentials): Pro
     ? data.data
     : [];
   return list as Area[];
+}
+
+export async function fetchZonesForArea(areaId: string, creds: Credentials): Promise<Zone[]> {
+  const url = `${ZONES_URL}?areaId=${encodeURIComponent(areaId)}`;
+  const headers = {
+    Authorization: basicAuthHeader(creds),
+    Accept: 'application/json',
+  } as Record<string, string>;
+
+  const res = await requestWithRetry(url, headers, { method: 'GET' });
+  if (res.status >= 400) {
+    console.warn(`Link Labs Sync: zones ${res.status} for area ${areaId}`);
+    return [];
+  }
+  let data: any = null;
+  try {
+    data = typeof res.json === 'function' ? await res.json() : JSON.parse(res.text || '[]');
+  } catch (e) {
+    data = [];
+  }
+  const list = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data?.data)
+    ? data.data
+    : [];
+  return list as Zone[];
 }
 
 export async function fetchSiteInfo(siteId: string, creds: Credentials): Promise<{ siteName: string | null; orgName: string | null }> {

@@ -75,7 +75,7 @@ var LinkLabsSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(containerEl).setName("Sync Areas").setDesc("Also fetch and write Area notes under each site").addToggle(
+    new import_obsidian.Setting(containerEl).setName("Sync Areas & Zones").setDesc("Also fetch and write Area notes and their child Zone notes under each site").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.syncAreas ?? true).onChange(async (value) => {
         this.plugin.settings.syncAreas = value;
         await this.plugin.saveSettings();
@@ -118,6 +118,7 @@ var import_obsidian2 = require("obsidian");
 var BASE_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/v4/tags";
 var SITE_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/site";
 var AREAS_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/areas";
+var ZONES_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/zones";
 function basicAuthHeader({ username, password }) {
   const toBase64 = (s) => typeof btoa === "function" ? btoa(s) : Buffer.from(s, "utf8").toString("base64");
   const token = toBase64(`${username}:${password}`);
@@ -132,6 +133,26 @@ async function fetchAreasForSite(siteId, creds) {
   const res = await requestWithRetry(url, headers, { method: "GET" });
   if (res.status >= 400) {
     console.warn(`Link Labs Sync: areas ${res.status} for ${siteId}`);
+    return [];
+  }
+  let data = null;
+  try {
+    data = typeof res.json === "function" ? await res.json() : JSON.parse(res.text || "[]");
+  } catch (e) {
+    data = [];
+  }
+  const list = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.data) ? data.data : [];
+  return list;
+}
+async function fetchZonesForArea(areaId, creds) {
+  const url = `${ZONES_URL}?areaId=${encodeURIComponent(areaId)}`;
+  const headers = {
+    Authorization: basicAuthHeader(creds),
+    Accept: "application/json"
+  };
+  const res = await requestWithRetry(url, headers, { method: "GET" });
+  if (res.status >= 400) {
+    console.warn(`Link Labs Sync: zones ${res.status} for area ${areaId}`);
     return [];
   }
   let data = null;
@@ -234,7 +255,7 @@ function val(v) {
   if (v === null || v === void 0) return "";
   return String(v);
 }
-function areaToMarkdown(area, siteId) {
+function areaToMarkdown(area, siteId, siteName, orgName) {
   const props = area?.assetInfo?.metadata?.props || {};
   const areaLocation = val(props.areaLocation);
   const zoneCount = val(props.zoneCount);
@@ -257,6 +278,8 @@ function areaToMarkdown(area, siteId) {
     `LL_areaLocation: ${areaLocation}`,
     `LL_zoneCount: ${zoneCount}`,
     `LL_siteId: ${val(siteId)}`,
+    `LL_sitename: ${val(siteName)}`,
+    `LL_orgname: ${val(orgName)}`,
     "---",
     "",
     "#LL_area",
@@ -267,6 +290,43 @@ function areaToMarkdown(area, siteId) {
 function chooseAreaFileName(area) {
   const props = area?.assetInfo?.metadata?.props || {};
   const base = area.value || props.name || area.id || "area";
+  return sanitizeFileName(base);
+}
+function zoneToMarkdown(zone, siteId, areaLocation, siteName, orgName) {
+  const props = zone?.assetInfo?.metadata?.props || {};
+  const zoneCategoryName = val(props.zoneCategoryName);
+  const name = val(zone.value || props.name || zone.id || "zone");
+  const points = String(props.points || "").trim();
+  const areaId = val(props.areaId);
+  let locationVal = "";
+  if ((areaLocation || "").toLowerCase() === "outdoor" && points) {
+    const first = points.split(";")[0]?.trim();
+    if (/^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(first || "")) {
+      const [lonStr, latStr] = first.split(",");
+      const lon = (lonStr ?? "").trim();
+      const lat = (latStr ?? "").trim();
+      locationVal = `${lat},${lon}`;
+    }
+  }
+  const lines = [
+    "---",
+    `location: "${locationVal}"`,
+    `LL_zonename: ${name}`,
+    `LL_zoneCategoryName: ${zoneCategoryName}`,
+    `LL_areaId: ${areaId}`,
+    `LL_siteId: ${val(siteId)}`,
+    `LL_sitename: ${val(siteName)}`,
+    `LL_orgname: ${val(orgName)}`,
+    "---",
+    "",
+    "#LL_zone",
+    ""
+  ];
+  return lines.join("\n");
+}
+function chooseZoneFileName(zone) {
+  const props = zone?.assetInfo?.metadata?.props || {};
+  const base = zone.value || props.name || zone.id || "zone";
   return sanitizeFileName(base);
 }
 function normalizeIsoAssumeUtc(input) {
@@ -407,13 +467,40 @@ async function syncAll(app, settings) {
             await ensureFolder(app, areasFolder);
             for (const area of areas) {
               try {
-                const md = areaToMarkdown(area, siteId);
+                const md = areaToMarkdown(area, siteId, siteName, orgName);
                 const base = chooseAreaFileName(area);
                 const filePath = (0, import_obsidian4.normalizePath)(`${areasFolder}/${base}.md`);
                 const result = await writeFileIfChanged(app, filePath, md);
                 if (result === "created") summary.created += 1;
                 else if (result === "updated") summary.updated += 1;
                 else summary.unchanged += 1;
+                if (area.id) {
+                  try {
+                    const zones = await fetchZonesForArea(area.id, creds);
+                    if (zones.length) {
+                      const zonesFolder = (0, import_obsidian4.normalizePath)(`${areasFolder}/${base}_Zones`);
+                      await ensureFolder(app, zonesFolder);
+                      const areaLocation = area?.assetInfo?.metadata?.props?.areaLocation || void 0;
+                      for (const zone of zones) {
+                        try {
+                          const zoneMd = zoneToMarkdown(zone, siteId, areaLocation, siteName, orgName);
+                          const zoneBase = chooseZoneFileName(zone);
+                          const zoneFilePath = (0, import_obsidian4.normalizePath)(`${zonesFolder}/${zoneBase}.md`);
+                          const zoneResult = await writeFileIfChanged(app, zoneFilePath, zoneMd);
+                          if (zoneResult === "created") summary.created += 1;
+                          else if (zoneResult === "updated") summary.updated += 1;
+                          else summary.unchanged += 1;
+                        } catch (e) {
+                          console.error("Link Labs Sync: failed to write a zone note", e);
+                          summary.errors += 1;
+                        }
+                      }
+                    }
+                  } catch (e) {
+                    console.error(`Link Labs Sync: error fetching zones for area ${area.id}`, e);
+                    summary.errors += 1;
+                  }
+                }
               } catch (e) {
                 console.error("Link Labs Sync: failed to write an area note", e);
                 summary.errors += 1;
