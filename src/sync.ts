@@ -2,7 +2,7 @@ import { App, Notice, normalizePath } from 'obsidian';
 import type { Asset, Credentials, PluginSettings, SyncSummary } from './types';
 import { fetchAssetsForSite, fetchSiteInfo, fetchAreasForSite, fetchZonesForArea, fetchLocationBeaconsForSite } from './api';
 import { assetToMarkdown, chooseBaseFileName, areaToMarkdown, chooseAreaFileName, zoneToMarkdown, chooseZoneFileName, locationBeaconToMarkdown, chooseLocationBeaconFileName } from './mapping';
-import { ensureFolder, writeFileIfChanged } from './fs';
+import { ensureFolder, writeFileIfChanged, buildMacidIndex, writeFileWithMacidTracking } from './fs';
 
 export async function syncAll(app: App, settings: PluginSettings): Promise<SyncSummary[]> {
   const { username, password, siteIds, outputFolder } = settings;
@@ -18,6 +18,10 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
 
   const summaries: SyncSummary[] = [];
   console.log('Link Labs Sync: starting syncAll', { siteIdsCount: siteIds.length, outputFolder });
+
+  // Build macid index for existing files to enable macid-based tracking
+  console.log('Link Labs Sync: building macid index');
+  await buildMacidIndex(app, outputFolder);
 
   for (const siteId of siteIds) {
     const summary: SyncSummary = { siteId, created: 0, updated: 0, unchanged: 0, errors: 0 };
@@ -106,9 +110,10 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
                 const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName);
                 const base = chooseLocationBeaconFileName(beacon);
                 const filePath = normalizePath(`${beaconsFolder}/${base}.md`);
-                const result = await writeFileIfChanged(app, filePath, md);
+                const macid = beacon?.assetInfo?.metadata?.props?.macAddress || null;
+                const result = await writeFileWithMacidTracking(app, filePath, md, macid);
                 if (result === 'created') summary.created += 1;
-                else if (result === 'updated') summary.updated += 1;
+                else if (result === 'updated' || result === 'renamed') summary.updated += 1;
                 else summary.unchanged += 1;
               } catch (e) {
                 console.error('Link Labs Sync: failed to write a location beacon note', e);
@@ -131,9 +136,10 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
           const md = assetToMarkdown(asset);
           const base = chooseBaseFileName(asset);
           const filePath = normalizePath(`${siteFolder}/${base}.md`);
-          const result = await writeFileIfChanged(app, filePath, md);
+          const macid = asset.macAddress || null;
+          const result = await writeFileWithMacidTracking(app, filePath, md, macid);
           if (result === 'created') summary.created += 1;
-          else if (result === 'updated') summary.updated += 1;
+          else if (result === 'updated' || result === 'renamed') summary.updated += 1;
           else summary.unchanged += 1;
         } catch (e) {
           console.error('Link Labs Sync: failed to write an asset note', e);

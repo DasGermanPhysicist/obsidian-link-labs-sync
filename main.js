@@ -470,6 +470,7 @@ function sanitizeFileName(name) {
 
 // src/fs.ts
 var import_obsidian3 = require("obsidian");
+var macidIndex = /* @__PURE__ */ new Map();
 async function ensureFolder(app, folderPath) {
   const normalized = (0, import_obsidian3.normalizePath)(folderPath);
   const existing = app.vault.getAbstractFileByPath(normalized);
@@ -492,6 +493,84 @@ async function writeFileIfChanged(app, filePath, content) {
   await app.vault.create(normalized, content);
   return "created";
 }
+function extractMacidFromContent(content) {
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!frontmatterMatch) return null;
+  const frontmatter = frontmatterMatch[1];
+  const macidMatch = frontmatter.match(/^LL_macid:\s*(.+)$/m);
+  return macidMatch ? macidMatch[1].trim() : null;
+}
+async function buildMacidIndex(app, folderPath) {
+  const folder = app.vault.getAbstractFileByPath((0, import_obsidian3.normalizePath)(folderPath));
+  if (!folder || !(folder instanceof import_obsidian3.TFolder)) return;
+  const processFile = async (file) => {
+    if (!file.path.endsWith(".md")) return;
+    try {
+      const content = await app.vault.read(file);
+      const macid = extractMacidFromContent(content);
+      if (macid) {
+        macidIndex.set(macid, file.path);
+      }
+    } catch (e) {
+      console.warn(`Link Labs Sync: failed to read file for macid indexing: ${file.path}`, e);
+    }
+  };
+  const processFolder = async (folder2) => {
+    for (const child of folder2.children) {
+      if (child instanceof import_obsidian3.TFile) {
+        await processFile(child);
+      } else if (child instanceof import_obsidian3.TFolder) {
+        await processFolder(child);
+      }
+    }
+  };
+  await processFolder(folder);
+}
+async function findFileByMacid(app, macid) {
+  if (!macid) return null;
+  const filePath = macidIndex.get(macid);
+  if (!filePath) return null;
+  const file = app.vault.getAbstractFileByPath(filePath);
+  return file instanceof import_obsidian3.TFile ? file : null;
+}
+function updateMacidIndex(filePath, macid) {
+  if (macid) {
+    macidIndex.set(macid, filePath);
+  }
+}
+async function writeFileWithMacidTracking(app, preferredFilePath, content, macid) {
+  if (!macid) {
+    const result = await writeFileIfChanged(app, preferredFilePath, content);
+    return result;
+  }
+  const existingFile = await findFileByMacid(app, macid);
+  if (existingFile) {
+    const preferredNormalized = (0, import_obsidian3.normalizePath)(preferredFilePath);
+    if (existingFile.path !== preferredNormalized) {
+      const current = await app.vault.read(existingFile);
+      if (current === content) {
+        await app.vault.rename(existingFile, preferredNormalized);
+        updateMacidIndex(preferredNormalized, macid);
+        return "renamed";
+      } else {
+        await app.vault.rename(existingFile, preferredNormalized);
+        await app.vault.modify(app.vault.getAbstractFileByPath(preferredNormalized), content);
+        updateMacidIndex(preferredNormalized, macid);
+        return "updated";
+      }
+    } else {
+      const current = await app.vault.read(existingFile);
+      if (current === content) return "unchanged";
+      await app.vault.modify(existingFile, content);
+      return "updated";
+    }
+  } else {
+    const normalized = (0, import_obsidian3.normalizePath)(preferredFilePath);
+    await app.vault.create(normalized, content);
+    updateMacidIndex(normalized, macid);
+    return "created";
+  }
+}
 
 // src/sync.ts
 async function syncAll(app, settings) {
@@ -507,6 +586,8 @@ async function syncAll(app, settings) {
   }
   const summaries = [];
   console.log("Link Labs Sync: starting syncAll", { siteIdsCount: siteIds.length, outputFolder });
+  console.log("Link Labs Sync: building macid index");
+  await buildMacidIndex(app, outputFolder);
   for (const siteId of siteIds) {
     const summary = { siteId, created: 0, updated: 0, unchanged: 0, errors: 0 };
     try {
@@ -585,9 +666,10 @@ async function syncAll(app, settings) {
                 const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName);
                 const base = chooseLocationBeaconFileName(beacon);
                 const filePath = (0, import_obsidian4.normalizePath)(`${beaconsFolder}/${base}.md`);
-                const result = await writeFileIfChanged(app, filePath, md);
+                const macid = beacon?.assetInfo?.metadata?.props?.macAddress || null;
+                const result = await writeFileWithMacidTracking(app, filePath, md, macid);
                 if (result === "created") summary.created += 1;
-                else if (result === "updated") summary.updated += 1;
+                else if (result === "updated" || result === "renamed") summary.updated += 1;
                 else summary.unchanged += 1;
               } catch (e) {
                 console.error("Link Labs Sync: failed to write a location beacon note", e);
@@ -608,9 +690,10 @@ async function syncAll(app, settings) {
           const md = assetToMarkdown(asset);
           const base = chooseBaseFileName(asset);
           const filePath = (0, import_obsidian4.normalizePath)(`${siteFolder}/${base}.md`);
-          const result = await writeFileIfChanged(app, filePath, md);
+          const macid = asset.macAddress || null;
+          const result = await writeFileWithMacidTracking(app, filePath, md, macid);
           if (result === "created") summary.created += 1;
-          else if (result === "updated") summary.updated += 1;
+          else if (result === "updated" || result === "renamed") summary.updated += 1;
           else summary.unchanged += 1;
         } catch (e) {
           console.error("Link Labs Sync: failed to write an asset note", e);
