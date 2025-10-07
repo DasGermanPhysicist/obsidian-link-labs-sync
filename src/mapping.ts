@@ -187,7 +187,7 @@ export function assetToMarkdown(asset: Asset): string {
     '---',
     `location: "${latitude},${longitude}"`,
     `LL_macid: ${mac}`,
-    `LL_nodename: ${nodeOrDesc}`,
+    `LL_name: ${nodeOrDesc}`,
     `LL_categoryName: ${category}`,
     `LL_groupName: ${groupName || 'null'}`,
     `LL_areaName: ${area}`,

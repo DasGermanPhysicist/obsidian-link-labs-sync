@@ -113,7 +113,7 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
                 const macid = beacon?.assetInfo?.metadata?.props?.macAddress || null;
                 const result = await writeFileWithMacidTracking(app, filePath, md, macid);
                 if (result === 'created') summary.created += 1;
-                else if (result === 'updated' || result === 'renamed') summary.updated += 1;
+                else if (result === 'updated') summary.updated += 1;
                 else summary.unchanged += 1;
               } catch (e) {
                 console.error('Link Labs Sync: failed to write a location beacon note', e);
@@ -139,7 +139,7 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
           const macid = asset.macAddress || null;
           const result = await writeFileWithMacidTracking(app, filePath, md, macid);
           if (result === 'created') summary.created += 1;
-          else if (result === 'updated' || result === 'renamed') summary.updated += 1;
+          else if (result === 'updated') summary.updated += 1;
           else summary.unchanged += 1;
         } catch (e) {
           console.error('Link Labs Sync: failed to write an asset note', e);

@@ -441,7 +441,7 @@ function assetToMarkdown(asset) {
     "---",
     `location: "${latitude},${longitude}"`,
     `LL_macid: ${mac}`,
-    `LL_nodename: ${nodeOrDesc}`,
+    `LL_name: ${nodeOrDesc}`,
     `LL_categoryName: ${category}`,
     `LL_groupName: ${groupName || "null"}`,
     `LL_areaName: ${area}`,
@@ -500,6 +500,48 @@ function extractMacidFromContent(content) {
   const macidMatch = frontmatter.match(/^LL_macid:\s*(.+)$/m);
   return macidMatch ? macidMatch[1].trim() : null;
 }
+function parseFrontmatter(content) {
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---([\s\S]*)$/);
+  if (!frontmatterMatch) {
+    return { frontmatter: {}, body: content };
+  }
+  const frontmatterText = frontmatterMatch[1];
+  const body = frontmatterMatch[2];
+  const frontmatter = {};
+  const lines = frontmatterText.split("\n");
+  for (const line of lines) {
+    const match = line.match(/^([^:]+):\s*(.*)$/);
+    if (match) {
+      const key = match[1].trim();
+      let value = match[2].trim();
+      if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+        value = value.slice(1, -1);
+      }
+      frontmatter[key] = value;
+    }
+  }
+  return { frontmatter, body };
+}
+function mergeWithExistingContent(existingContent, newContent) {
+  const { frontmatter: existingFm, body: existingBody } = parseFrontmatter(existingContent);
+  const { frontmatter: newFm } = parseFrontmatter(newContent);
+  const mergedFm = { ...existingFm };
+  for (const [key, value] of Object.entries(newFm)) {
+    if (key.startsWith("LL_") || key === "location") {
+      mergedFm[key] = value;
+    }
+  }
+  const frontmatterLines = ["---"];
+  for (const [key, value] of Object.entries(mergedFm)) {
+    if (typeof value === "string" && (value.includes(",") || value.includes(" ") || value === "")) {
+      frontmatterLines.push(`${key}: "${value}"`);
+    } else {
+      frontmatterLines.push(`${key}: ${value}`);
+    }
+  }
+  frontmatterLines.push("---");
+  return frontmatterLines.join("\n") + existingBody;
+}
 async function buildMacidIndex(app, folderPath) {
   const folder = app.vault.getAbstractFileByPath((0, import_obsidian3.normalizePath)(folderPath));
   if (!folder || !(folder instanceof import_obsidian3.TFolder)) return;
@@ -545,25 +587,13 @@ async function writeFileWithMacidTracking(app, preferredFilePath, content, macid
   }
   const existingFile = await findFileByMacid(app, macid);
   if (existingFile) {
-    const preferredNormalized = (0, import_obsidian3.normalizePath)(preferredFilePath);
-    if (existingFile.path !== preferredNormalized) {
-      const current = await app.vault.read(existingFile);
-      if (current === content) {
-        await app.vault.rename(existingFile, preferredNormalized);
-        updateMacidIndex(preferredNormalized, macid);
-        return "renamed";
-      } else {
-        await app.vault.rename(existingFile, preferredNormalized);
-        await app.vault.modify(app.vault.getAbstractFileByPath(preferredNormalized), content);
-        updateMacidIndex(preferredNormalized, macid);
-        return "updated";
-      }
-    } else {
-      const current = await app.vault.read(existingFile);
-      if (current === content) return "unchanged";
-      await app.vault.modify(existingFile, content);
-      return "updated";
+    const currentContent = await app.vault.read(existingFile);
+    const mergedContent = mergeWithExistingContent(currentContent, content);
+    if (currentContent === mergedContent) {
+      return "unchanged";
     }
+    await app.vault.modify(existingFile, mergedContent);
+    return "updated";
   } else {
     const normalized = (0, import_obsidian3.normalizePath)(preferredFilePath);
     await app.vault.create(normalized, content);
@@ -669,7 +699,7 @@ async function syncAll(app, settings) {
                 const macid = beacon?.assetInfo?.metadata?.props?.macAddress || null;
                 const result = await writeFileWithMacidTracking(app, filePath, md, macid);
                 if (result === "created") summary.created += 1;
-                else if (result === "updated" || result === "renamed") summary.updated += 1;
+                else if (result === "updated") summary.updated += 1;
                 else summary.unchanged += 1;
               } catch (e) {
                 console.error("Link Labs Sync: failed to write a location beacon note", e);
@@ -693,7 +723,7 @@ async function syncAll(app, settings) {
           const macid = asset.macAddress || null;
           const result = await writeFileWithMacidTracking(app, filePath, md, macid);
           if (result === "created") summary.created += 1;
-          else if (result === "updated" || result === "renamed") summary.updated += 1;
+          else if (result === "updated") summary.updated += 1;
           else summary.unchanged += 1;
         } catch (e) {
           console.error("Link Labs Sync: failed to write an asset note", e);

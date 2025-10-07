@@ -46,6 +46,64 @@ function extractMacidFromContent(content: string): string | null {
   return macidMatch ? macidMatch[1].trim() : null;
 }
 
+// Parse frontmatter from content
+function parseFrontmatter(content: string): { frontmatter: Record<string, any>; body: string } {
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---([\s\S]*)$/);
+  if (!frontmatterMatch) {
+    return { frontmatter: {}, body: content };
+  }
+  
+  const frontmatterText = frontmatterMatch[1];
+  const body = frontmatterMatch[2];
+  const frontmatter: Record<string, any> = {};
+  
+  // Parse YAML-like frontmatter (simple key: value pairs)
+  const lines = frontmatterText.split('\n');
+  for (const line of lines) {
+    const match = line.match(/^([^:]+):\s*(.*)$/);
+    if (match) {
+      const key = match[1].trim();
+      let value = match[2].trim();
+      // Remove quotes if present
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      frontmatter[key] = value;
+    }
+  }
+  
+  return { frontmatter, body };
+}
+
+// Merge new LL_* properties with existing frontmatter
+function mergeWithExistingContent(existingContent: string, newContent: string): string {
+  const { frontmatter: existingFm, body: existingBody } = parseFrontmatter(existingContent);
+  const { frontmatter: newFm } = parseFrontmatter(newContent);
+  
+  // Merge frontmatter: preserve existing non-LL fields, update LL fields
+  const mergedFm = { ...existingFm };
+  
+  // Update only LL_* fields from new content
+  for (const [key, value] of Object.entries(newFm)) {
+    if (key.startsWith('LL_') || key === 'location') {
+      mergedFm[key] = value;
+    }
+  }
+  
+  // Rebuild frontmatter
+  const frontmatterLines = ['---'];
+  for (const [key, value] of Object.entries(mergedFm)) {
+    if (typeof value === 'string' && (value.includes(',') || value.includes(' ') || value === '')) {
+      frontmatterLines.push(`${key}: "${value}"`);
+    } else {
+      frontmatterLines.push(`${key}: ${value}`);
+    }
+  }
+  frontmatterLines.push('---');
+  
+  return frontmatterLines.join('\n') + existingBody;
+}
+
 // Build index of macid -> file path for a folder
 export async function buildMacidIndex(app: App, folderPath: string): Promise<void> {
   const folder = app.vault.getAbstractFileByPath(normalizePath(folderPath));
@@ -117,7 +175,7 @@ export async function writeFileWithMacidTracking(
   preferredFilePath: string, 
   content: string, 
   macid: string | null
-): Promise<'created' | 'updated' | 'unchanged' | 'renamed'> {
+): Promise<'created' | 'updated' | 'unchanged'> {
   // If no macid, fall back to regular file writing
   if (!macid) {
     const result = await writeFileIfChanged(app, preferredFilePath, content);
@@ -128,33 +186,16 @@ export async function writeFileWithMacidTracking(
   const existingFile = await findFileByMacid(app, macid);
   
   if (existingFile) {
-    // File exists, check if we need to rename it
-    const preferredNormalized = normalizePath(preferredFilePath);
+    // File exists - preserve filename and merge content selectively
+    const currentContent = await app.vault.read(existingFile);
+    const mergedContent = mergeWithExistingContent(currentContent, content);
     
-    if (existingFile.path !== preferredNormalized) {
-      // Need to rename the file
-      const current = await app.vault.read(existingFile);
-      if (current === content) {
-        // Content is the same, just rename
-        await app.vault.rename(existingFile, preferredNormalized);
-        // Update index with new path
-        updateMacidIndex(preferredNormalized, macid);
-        return 'renamed';
-      } else {
-        // Content changed and need to rename
-        await app.vault.rename(existingFile, preferredNormalized);
-        await app.vault.modify(app.vault.getAbstractFileByPath(preferredNormalized) as TFile, content);
-        // Update index with new path
-        updateMacidIndex(preferredNormalized, macid);
-        return 'updated';
-      }
-    } else {
-      // File path is correct, just check content
-      const current = await app.vault.read(existingFile);
-      if (current === content) return 'unchanged';
-      await app.vault.modify(existingFile, content);
-      return 'updated';
+    if (currentContent === mergedContent) {
+      return 'unchanged';
     }
+    
+    await app.vault.modify(existingFile, mergedContent);
+    return 'updated';
   } else {
     // No existing file with this macid, create new one
     const normalized = normalizePath(preferredFilePath);
