@@ -1,0 +1,16 @@
+{
+  "name": "link-labs-sync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Obsidian plugin to sync Link Labs asset data into your vault as Markdown notes.",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "dev": "node esbuild.config.mjs --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "esbuild": "^0.21.5",
+    "obsidian": "^1.5.12",
+    "typescript": "^5.4.5"
+  }
+}

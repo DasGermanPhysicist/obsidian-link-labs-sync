@@ -1,0 +1,10 @@
+{
+  "id": "link-labs-sync",
+  "name": "Link Labs Sync",
+  "version": "0.1.0",
+  "minAppVersion": "1.0.0",
+  "description": "Sync Link Labs asset data into your vault as Markdown notes.",
+  "author": "",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
