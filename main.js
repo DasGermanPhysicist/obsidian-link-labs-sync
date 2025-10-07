@@ -206,6 +206,38 @@ function val(v) {
   if (v === null || v === void 0) return "";
   return String(v);
 }
+function normalizeIsoAssumeUtc(input) {
+  if (typeof input === "string") {
+    const s = input.trim();
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(s)) {
+      return s + "Z";
+    }
+  }
+  return input;
+}
+function toUtcIsoZ(input) {
+  if (input === null || input === void 0 || input === "") return "";
+  const d = new Date(normalizeIsoAssumeUtc(input));
+  if (isNaN(d.getTime())) return String(input);
+  return d.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+function toLocalIsoWithOffset(input) {
+  if (input === null || input === void 0 || input === "") return "";
+  const d = new Date(normalizeIsoAssumeUtc(input));
+  if (isNaN(d.getTime())) return String(input);
+  const pad = (n) => String(Math.floor(Math.abs(n))).padStart(2, "0");
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const mins = pad(d.getMinutes());
+  const secs = pad(d.getSeconds());
+  const offsetMin = -d.getTimezoneOffset();
+  const sign = offsetMin >= 0 ? "+" : "-";
+  const offH = pad(offsetMin / 60);
+  const offM = pad(offsetMin % 60);
+  return `${year}-${month}-${day}T${hours}:${mins}:${secs}${sign}${offH}:${offM}`;
+}
 function assetToMarkdown(asset) {
   const latitude = val(asset.latitude);
   const longitude = val(asset.longitude);
@@ -215,7 +247,8 @@ function assetToMarkdown(asset) {
   const groupName = asset.groupName === void 0 ? "" : String(asset.groupName);
   const area = val(asset.areaName);
   const zone = val(asset.zoneName);
-  const lastEventTime = val(asset.lastEventTime);
+  const lastEventTimeUtc = toUtcIsoZ(asset.lastEventTime);
+  const lastEventTimeLocal = toLocalIsoWithOffset(asset.lastEventTime);
   const siteId = val(asset.siteId);
   const siteName = val(asset.siteName);
   const orgName = val(asset.orgName);
@@ -228,7 +261,8 @@ function assetToMarkdown(asset) {
     `groupName: ${groupName || "null"}`,
     `LL_areaName: ${area}`,
     `LL_zoneName: ${zone}`,
-    `LL_lastEventTime: ${lastEventTime}`,
+    `LL_lastEventTime: "${lastEventTimeUtc}"`,
+    `LL_lastEventTimeLocal: "${lastEventTimeLocal}"`,
     `LL_siteId: ${siteId}`,
     `LL_sitename: ${siteName}`,
     `LL_orgname: ${orgName}`,
