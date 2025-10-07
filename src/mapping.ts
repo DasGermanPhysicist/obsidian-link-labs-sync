@@ -21,7 +21,7 @@ export function assetToMarkdown(asset: Asset): string {
 
   const lines = [
     '---',
-    `location: ${latitude},${longitude}`,
+    `location: "${latitude},${longitude}"`,
     `LL_macid: ${mac}`,
     `LL_nodename: ${nodeOrDesc}`,
     `LL_categoryName: ${category}`,

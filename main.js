@@ -221,7 +221,7 @@ function assetToMarkdown(asset) {
   const orgName = val(asset.orgName);
   const lines = [
     "---",
-    `location: ${latitude},${longitude}`,
+    `location: "${latitude},${longitude}"`,
     `LL_macid: ${mac}`,
     `LL_nodename: ${nodeOrDesc}`,
     `LL_categoryName: ${category}`,
