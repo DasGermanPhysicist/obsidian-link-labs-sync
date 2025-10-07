@@ -258,7 +258,7 @@ function assetToMarkdown(asset) {
     `LL_macid: ${mac}`,
     `LL_nodename: ${nodeOrDesc}`,
     `LL_categoryName: ${category}`,
-    `groupName: ${groupName || "null"}`,
+    `LL_groupName: ${groupName || "null"}`,
     `LL_areaName: ${area}`,
     `LL_zoneName: ${zone}`,
     `LL_lastEventTime: "${lastEventTimeUtc}"`,
@@ -268,7 +268,7 @@ function assetToMarkdown(asset) {
     `LL_orgname: ${orgName}`,
     "---",
     "",
-    "#ll_asset",
+    "#LL_asset",
     ""
   ];
   return lines.join("\n");

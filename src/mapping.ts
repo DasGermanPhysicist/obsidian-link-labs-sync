@@ -64,7 +64,7 @@ export function assetToMarkdown(asset: Asset): string {
     `LL_macid: ${mac}`,
     `LL_nodename: ${nodeOrDesc}`,
     `LL_categoryName: ${category}`,
-    `groupName: ${groupName || 'null'}`,
+    `LL_groupName: ${groupName || 'null'}`,
     `LL_areaName: ${area}`,
     `LL_zoneName: ${zone}`,
     `LL_lastEventTime: "${lastEventTimeUtc}"`,
@@ -74,7 +74,7 @@ export function assetToMarkdown(asset: Asset): string {
     `LL_orgname: ${orgName}`,
     '---',
     '',
-    '#ll_asset',
+    '#LL_asset',
     '',
   ];
 
