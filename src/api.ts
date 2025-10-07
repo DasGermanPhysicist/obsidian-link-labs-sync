@@ -1,11 +1,12 @@
 import { requestUrl } from 'obsidian';
-import type { Asset, Credentials, Area, Zone, LocationBeacon } from './types';
+import type { Asset, Credentials, Area, Zone, LocationBeacon, AddressInfo } from './types';
 
 const BASE_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/v4/tags';
 const SITE_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/site';
 const AREAS_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/areas';
 const ZONES_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/zones';
 const LOCATIONS_URL = 'https://networkasset-conductor.link-labs.com/networkAsset/airfinder/locations';
+const GEOCODE_URL = 'https://api.george.airfinder.com/reverse.php';
 
 function basicAuthHeader({ username, password }: Credentials): string {
   // Obsidian renderer should have btoa; add fallback for safety
@@ -203,4 +204,44 @@ function delay(ms: number) {
 function delayMsWithJitter(base: number) {
   const jitter = Math.floor(Math.random() * 150);
   return base + jitter;
+}
+
+export async function resolveAddress(latitude: string | number, longitude: string | number): Promise<AddressInfo | null> {
+  if (!latitude || !longitude) return null;
+  
+  const lat = String(latitude);
+  const lon = String(longitude);
+  const url = `${GEOCODE_URL}?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&zoom=18&format=jsonv2`;
+  
+  try {
+    const res = await requestWithRetry(url, {}, { method: 'GET' });
+    if (res.status >= 400) {
+      console.warn(`Link Labs Sync: address resolution ${res.status} for ${lat},${lon}`);
+      return null;
+    }
+    
+    let data: any = null;
+    try {
+      data = typeof res.json === 'function' ? await res.json() : JSON.parse(res.text || 'null');
+    } catch (e) {
+      console.warn('Link Labs Sync: failed to parse address resolution response', e);
+      return null;
+    }
+    
+    if (!data || !data.address) return null;
+    
+    const address = data.address;
+    return {
+      road: address.road || null,
+      city: address.city || null,
+      county: address.county || null,
+      state: address.state || null,
+      postcode: address.postcode || null,
+      country: address.country || null,
+      display_name: data.display_name || null,
+    };
+  } catch (e) {
+    console.warn('Link Labs Sync: address resolution failed', e);
+    return null;
+  }
 }

@@ -1,4 +1,4 @@
-import type { Asset, Area, Zone, LocationBeacon } from './types';
+import type { Asset, Area, Zone, LocationBeacon, AddressInfo } from './types';
 
 function val(v: any): string {
   if (v === null || v === undefined) return '';
@@ -91,7 +91,7 @@ export function chooseZoneFileName(zone: Zone): string {
   return sanitizeFileName(base);
 }
 
-export function locationBeaconToMarkdown(beacon: LocationBeacon, siteId: string, siteName?: string | null, orgName?: string | null): string {
+export function locationBeaconToMarkdown(beacon: LocationBeacon, siteId: string, siteName?: string | null, orgName?: string | null, addressInfo?: AddressInfo | null): string {
   const props = beacon?.assetInfo?.metadata?.props || {} as any;
   const name = val(beacon.nodeName || props.name || beacon.nodeAddress || 'beacon');
   const macAddress = val(props.macAddress);
@@ -116,11 +116,20 @@ export function locationBeaconToMarkdown(beacon: LocationBeacon, siteId: string,
     `LL_orgname: ${val(orgName)}`,
     `LL_zoneId: ${zoneId}`,
     `LL_zoneName: ${zoneName}`,
-    '---',
-    '',
-    '#LL_locationbeacon',
-    '',
   ];
+
+  // Add address fields if available
+  if (addressInfo) {
+    lines.push(`LL_road: ${val(addressInfo.road)}`);
+    lines.push(`LL_city: ${val(addressInfo.city)}`);
+    lines.push(`LL_county: ${val(addressInfo.county)}`);
+    lines.push(`LL_state: ${val(addressInfo.state)}`);
+    lines.push(`LL_postcode: ${val(addressInfo.postcode)}`);
+    lines.push(`LL_country: ${val(addressInfo.country)}`);
+    lines.push(`LL_address: ${val(addressInfo.display_name)}`);
+  }
+
+  lines.push('---', '', '#LL_locationbeacon', '');
   return lines.join('\n');
 }
 
@@ -168,7 +177,7 @@ function toLocalIsoWithOffset(input: any): string {
   return `${year}-${month}-${day}T${hours}:${mins}:${secs}${sign}${offH}:${offM}`;
 }
 
-export function assetToMarkdown(asset: Asset): string {
+export function assetToMarkdown(asset: Asset, addressInfo?: AddressInfo | null): string {
   const latitude = val(asset.latitude);
   const longitude = val(asset.longitude);
   const mac = val(asset.macAddress);
@@ -197,11 +206,20 @@ export function assetToMarkdown(asset: Asset): string {
     `LL_siteId: ${siteId}`,
     `LL_sitename: ${siteName}`,
     `LL_orgname: ${orgName}`,
-    '---',
-    '',
-    '#LL_asset',
-    '',
   ];
+
+  // Add address fields if available
+  if (addressInfo) {
+    lines.push(`LL_road: ${val(addressInfo.road)}`);
+    lines.push(`LL_city: ${val(addressInfo.city)}`);
+    lines.push(`LL_county: ${val(addressInfo.county)}`);
+    lines.push(`LL_state: ${val(addressInfo.state)}`);
+    lines.push(`LL_postcode: ${val(addressInfo.postcode)}`);
+    lines.push(`LL_country: ${val(addressInfo.country)}`);
+    lines.push(`LL_address: ${val(addressInfo.display_name)}`);
+  }
+
+  lines.push('---', '', '#LL_asset', '');
 
   return lines.join('\n');
 }

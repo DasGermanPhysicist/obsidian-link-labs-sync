@@ -1,6 +1,6 @@
 import { App, Notice, normalizePath } from 'obsidian';
 import type { Asset, Credentials, PluginSettings, SyncSummary } from './types';
-import { fetchAssetsForSite, fetchSiteInfo, fetchAreasForSite, fetchZonesForArea, fetchLocationBeaconsForSite } from './api';
+import { fetchAssetsForSite, fetchSiteInfo, fetchAreasForSite, fetchZonesForArea, fetchLocationBeaconsForSite, resolveAddress } from './api';
 import { assetToMarkdown, chooseBaseFileName, areaToMarkdown, chooseAreaFileName, zoneToMarkdown, chooseZoneFileName, locationBeaconToMarkdown, chooseLocationBeaconFileName } from './mapping';
 import { ensureFolder, writeFileIfChanged, buildMacidIndex, writeFileWithMacidTracking } from './fs';
 
@@ -107,7 +107,24 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
             await ensureFolder(app, beaconsFolder);
             for (const beacon of beacons) {
               try {
-                const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName);
+                // Resolve address if enabled and coordinates available
+                let addressInfo = null;
+                if (settings.resolveAddresses) {
+                  const props = beacon?.assetInfo?.metadata?.props;
+                  const lat = props?.installedLatitude;
+                  const lon = props?.installedLongitude;
+                  if (lat && lon) {
+                    try {
+                      addressInfo = await resolveAddress(lat, lon);
+                      // Add small delay to avoid overwhelming the geocoding service
+                      await new Promise(resolve => setTimeout(resolve, 100));
+                    } catch (e) {
+                      console.warn('Link Labs Sync: address resolution failed for beacon', e);
+                    }
+                  }
+                }
+
+                const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo);
                 const base = chooseLocationBeaconFileName(beacon);
                 const filePath = normalizePath(`${beaconsFolder}/${base}.md`);
                 const macid = beacon?.assetInfo?.metadata?.props?.macAddress || null;
@@ -133,7 +150,24 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
           (asset as Asset).siteId = siteId;
           (asset as Asset).siteName = siteName ?? null;
           (asset as Asset).orgName = orgName ?? null;
-          const md = assetToMarkdown(asset);
+
+          // Resolve address if enabled and coordinates available
+          let addressInfo = null;
+          if (settings.resolveAddresses) {
+            const lat = asset.latitude;
+            const lon = asset.longitude;
+            if (lat && lon) {
+              try {
+                addressInfo = await resolveAddress(lat, lon);
+                // Add small delay to avoid overwhelming the geocoding service
+                await new Promise(resolve => setTimeout(resolve, 100));
+              } catch (e) {
+                console.warn('Link Labs Sync: address resolution failed for asset', e);
+              }
+            }
+          }
+
+          const md = assetToMarkdown(asset, addressInfo);
           const base = chooseBaseFileName(asset);
           const filePath = normalizePath(`${siteFolder}/${base}.md`);
           const macid = asset.macAddress || null;

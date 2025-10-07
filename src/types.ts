@@ -9,11 +9,22 @@ export interface PluginSettings {
   maxPagesPerSite: number; // cap pagination per site
   syncAreas?: boolean; // enable/disable syncing of Areas
   syncLocationBeacons?: boolean; // enable/disable syncing of Location Beacons
+  resolveAddresses?: boolean; // enable/disable address resolution from coordinates
 }
 
 export interface Credentials {
   username: string;
   password: string;
+}
+
+export interface AddressInfo {
+  road?: string | null;
+  city?: string | null;
+  county?: string | null;
+  state?: string | null;
+  postcode?: string | null;
+  country?: string | null;
+  display_name?: string | null;
 }
 
 export interface Asset {

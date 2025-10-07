@@ -40,7 +40,8 @@ var DEFAULT_SETTINGS = {
   concurrency: 2,
   maxPagesPerSite: 1,
   syncAreas: true,
-  syncLocationBeacons: true
+  syncLocationBeacons: true,
+  resolveAddresses: false
 };
 var LinkLabsSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
@@ -88,6 +89,12 @@ var LinkLabsSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    new import_obsidian.Setting(containerEl).setName("Resolve Addresses").setDesc("Resolve coordinates to human-readable addresses (adds LL_road, LL_city, LL_state, etc.)").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.resolveAddresses ?? false).onChange(async (value) => {
+        this.plugin.settings.resolveAddresses = value;
+        await this.plugin.saveSettings();
+      })
+    );
     new import_obsidian.Setting(containerEl).setName("Background sync").setDesc("Run automatic sync on an interval").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.backgroundSync).onChange(async (value) => {
         this.plugin.settings.backgroundSync = value;
@@ -127,6 +134,7 @@ var SITE_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfin
 var AREAS_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/areas";
 var ZONES_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/zones";
 var LOCATIONS_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/locations";
+var GEOCODE_URL = "https://api.george.airfinder.com/reverse.php";
 function basicAuthHeader({ username, password }) {
   const toBase64 = (s) => typeof btoa === "function" ? btoa(s) : Buffer.from(s, "utf8").toString("base64");
   const token = toBase64(`${username}:${password}`);
@@ -277,6 +285,40 @@ function delayMsWithJitter(base) {
   const jitter = Math.floor(Math.random() * 150);
   return base + jitter;
 }
+async function resolveAddress(latitude, longitude) {
+  if (!latitude || !longitude) return null;
+  const lat = String(latitude);
+  const lon = String(longitude);
+  const url = `${GEOCODE_URL}?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&zoom=18&format=jsonv2`;
+  try {
+    const res = await requestWithRetry(url, {}, { method: "GET" });
+    if (res.status >= 400) {
+      console.warn(`Link Labs Sync: address resolution ${res.status} for ${lat},${lon}`);
+      return null;
+    }
+    let data = null;
+    try {
+      data = typeof res.json === "function" ? await res.json() : JSON.parse(res.text || "null");
+    } catch (e) {
+      console.warn("Link Labs Sync: failed to parse address resolution response", e);
+      return null;
+    }
+    if (!data || !data.address) return null;
+    const address = data.address;
+    return {
+      road: address.road || null,
+      city: address.city || null,
+      county: address.county || null,
+      state: address.state || null,
+      postcode: address.postcode || null,
+      country: address.country || null,
+      display_name: data.display_name || null
+    };
+  } catch (e) {
+    console.warn("Link Labs Sync: address resolution failed", e);
+    return null;
+  }
+}
 
 // src/mapping.ts
 function val(v) {
@@ -357,7 +399,7 @@ function chooseZoneFileName(zone) {
   const base = zone.value || props.name || zone.id || "zone";
   return sanitizeFileName(base);
 }
-function locationBeaconToMarkdown(beacon, siteId, siteName, orgName) {
+function locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo) {
   const props = beacon?.assetInfo?.metadata?.props || {};
   const name = val(beacon.nodeName || props.name || beacon.nodeAddress || "beacon");
   const macAddress = val(props.macAddress);
@@ -378,12 +420,18 @@ function locationBeaconToMarkdown(beacon, siteId, siteName, orgName) {
     `LL_sitename: ${val(siteName)}`,
     `LL_orgname: ${val(orgName)}`,
     `LL_zoneId: ${zoneId}`,
-    `LL_zoneName: ${zoneName}`,
-    "---",
-    "",
-    "#LL_locationbeacon",
-    ""
+    `LL_zoneName: ${zoneName}`
   ];
+  if (addressInfo) {
+    lines.push(`LL_road: ${val(addressInfo.road)}`);
+    lines.push(`LL_city: ${val(addressInfo.city)}`);
+    lines.push(`LL_county: ${val(addressInfo.county)}`);
+    lines.push(`LL_state: ${val(addressInfo.state)}`);
+    lines.push(`LL_postcode: ${val(addressInfo.postcode)}`);
+    lines.push(`LL_country: ${val(addressInfo.country)}`);
+    lines.push(`LL_address: ${val(addressInfo.display_name)}`);
+  }
+  lines.push("---", "", "#LL_locationbeacon", "");
   return lines.join("\n");
 }
 function chooseLocationBeaconFileName(beacon) {
@@ -423,7 +471,7 @@ function toLocalIsoWithOffset(input) {
   const offM = pad(offsetMin % 60);
   return `${year}-${month}-${day}T${hours}:${mins}:${secs}${sign}${offH}:${offM}`;
 }
-function assetToMarkdown(asset) {
+function assetToMarkdown(asset, addressInfo) {
   const latitude = val(asset.latitude);
   const longitude = val(asset.longitude);
   const mac = val(asset.macAddress);
@@ -450,12 +498,18 @@ function assetToMarkdown(asset) {
     `LL_lastEventTimeLocal: "${lastEventTimeLocal}"`,
     `LL_siteId: ${siteId}`,
     `LL_sitename: ${siteName}`,
-    `LL_orgname: ${orgName}`,
-    "---",
-    "",
-    "#LL_asset",
-    ""
+    `LL_orgname: ${orgName}`
   ];
+  if (addressInfo) {
+    lines.push(`LL_road: ${val(addressInfo.road)}`);
+    lines.push(`LL_city: ${val(addressInfo.city)}`);
+    lines.push(`LL_county: ${val(addressInfo.county)}`);
+    lines.push(`LL_state: ${val(addressInfo.state)}`);
+    lines.push(`LL_postcode: ${val(addressInfo.postcode)}`);
+    lines.push(`LL_country: ${val(addressInfo.country)}`);
+    lines.push(`LL_address: ${val(addressInfo.display_name)}`);
+  }
+  lines.push("---", "", "#LL_asset", "");
   return lines.join("\n");
 }
 function chooseBaseFileName(asset) {
@@ -693,7 +747,21 @@ async function syncAll(app, settings) {
             await ensureFolder(app, beaconsFolder);
             for (const beacon of beacons) {
               try {
-                const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName);
+                let addressInfo = null;
+                if (settings.resolveAddresses) {
+                  const props = beacon?.assetInfo?.metadata?.props;
+                  const lat = props?.installedLatitude;
+                  const lon = props?.installedLongitude;
+                  if (lat && lon) {
+                    try {
+                      addressInfo = await resolveAddress(lat, lon);
+                      await new Promise((resolve) => setTimeout(resolve, 100));
+                    } catch (e) {
+                      console.warn("Link Labs Sync: address resolution failed for beacon", e);
+                    }
+                  }
+                }
+                const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo);
                 const base = chooseLocationBeaconFileName(beacon);
                 const filePath = (0, import_obsidian4.normalizePath)(`${beaconsFolder}/${base}.md`);
                 const macid = beacon?.assetInfo?.metadata?.props?.macAddress || null;
@@ -717,7 +785,20 @@ async function syncAll(app, settings) {
           asset.siteId = siteId;
           asset.siteName = siteName ?? null;
           asset.orgName = orgName ?? null;
-          const md = assetToMarkdown(asset);
+          let addressInfo = null;
+          if (settings.resolveAddresses) {
+            const lat = asset.latitude;
+            const lon = asset.longitude;
+            if (lat && lon) {
+              try {
+                addressInfo = await resolveAddress(lat, lon);
+                await new Promise((resolve) => setTimeout(resolve, 100));
+              } catch (e) {
+                console.warn("Link Labs Sync: address resolution failed for asset", e);
+              }
+            }
+          }
+          const md = assetToMarkdown(asset, addressInfo);
           const base = chooseBaseFileName(asset);
           const filePath = (0, import_obsidian4.normalizePath)(`${siteFolder}/${base}.md`);
           const macid = asset.macAddress || null;

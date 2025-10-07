@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   maxPagesPerSite: 1,
   syncAreas: true,
   syncLocationBeacons: true,
+  resolveAddresses: false,
 };
 
 export class LinkLabsSettingTab extends PluginSettingTab {
@@ -102,6 +103,16 @@ export class LinkLabsSettingTab extends PluginSettingTab {
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.syncLocationBeacons ?? true).onChange(async (value) => {
           this.plugin.settings.syncLocationBeacons = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName('Resolve Addresses')
+      .setDesc('Resolve coordinates to human-readable addresses (adds LL_road, LL_city, LL_state, etc.)')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.resolveAddresses ?? false).onChange(async (value) => {
+          this.plugin.settings.resolveAddresses = value;
           await this.plugin.saveSettings();
         })
       );
