@@ -1,4 +1,4 @@
-import type { Asset, Area, Zone } from './types';
+import type { Asset, Area, Zone, LocationBeacon } from './types';
 
 function val(v: any): string {
   if (v === null || v === undefined) return '';
@@ -88,6 +88,45 @@ export function zoneToMarkdown(zone: Zone, siteId: string, areaLocation?: string
 export function chooseZoneFileName(zone: Zone): string {
   const props = zone?.assetInfo?.metadata?.props || {} as any;
   const base = (zone.value || props.name || zone.id || 'zone') as string;
+  return sanitizeFileName(base);
+}
+
+export function locationBeaconToMarkdown(beacon: LocationBeacon, siteId: string, siteName?: string | null, orgName?: string | null): string {
+  const props = beacon?.assetInfo?.metadata?.props || {} as any;
+  const name = val(beacon.nodeName || props.name || beacon.nodeAddress || 'beacon');
+  const macAddress = val(props.macAddress);
+  const installedLatitude = val(props.installedLatitude);
+  const installedLongitude = val(props.installedLongitude);
+  const zoneId = val(props.zoneId);
+  const zoneName = val(props.zoneName);
+
+  // location handling: use installedLatitude and installedLongitude when available
+  let locationVal = '';
+  if (installedLatitude && installedLongitude) {
+    locationVal = `${installedLatitude},${installedLongitude}`;
+  }
+
+  const lines = [
+    '---',
+    `location: "${locationVal}"`,
+    `LL_name: ${name}`,
+    `LL_macid: ${macAddress}`,
+    `LL_siteId: ${val(siteId)}`,
+    `LL_sitename: ${val(siteName)}`,
+    `LL_orgname: ${val(orgName)}`,
+    `LL_zoneId: ${zoneId}`,
+    `LL_zoneName: ${zoneName}`,
+    '---',
+    '',
+    '#LL_locationbeacon',
+    '',
+  ];
+  return lines.join('\n');
+}
+
+export function chooseLocationBeaconFileName(beacon: LocationBeacon): string {
+  const props = beacon?.assetInfo?.metadata?.props || {} as any;
+  const base = (beacon.nodeName || props.name || beacon.nodeAddress || 'beacon') as string;
   return sanitizeFileName(base);
 }
 

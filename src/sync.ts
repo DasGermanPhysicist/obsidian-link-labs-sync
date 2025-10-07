@@ -1,7 +1,7 @@
 import { App, Notice, normalizePath } from 'obsidian';
 import type { Asset, Credentials, PluginSettings, SyncSummary } from './types';
-import { fetchAssetsForSite, fetchSiteInfo, fetchAreasForSite, fetchZonesForArea } from './api';
-import { assetToMarkdown, chooseBaseFileName, areaToMarkdown, chooseAreaFileName, zoneToMarkdown, chooseZoneFileName } from './mapping';
+import { fetchAssetsForSite, fetchSiteInfo, fetchAreasForSite, fetchZonesForArea, fetchLocationBeaconsForSite } from './api';
+import { assetToMarkdown, chooseBaseFileName, areaToMarkdown, chooseAreaFileName, zoneToMarkdown, chooseZoneFileName, locationBeaconToMarkdown, chooseLocationBeaconFileName } from './mapping';
 import { ensureFolder, writeFileIfChanged } from './fs';
 
 export async function syncAll(app: App, settings: PluginSettings): Promise<SyncSummary[]> {
@@ -90,6 +90,34 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
           }
         } catch (e) {
           console.error('Link Labs Sync: error fetching areas', e);
+          summary.errors += 1;
+        }
+      }
+
+      // Fetch and write Location Beacons (optional)
+      if (settings.syncLocationBeacons ?? true) {
+        try {
+          const beacons = await fetchLocationBeaconsForSite(siteId, creds);
+          if (beacons.length) {
+            const beaconsFolder = normalizePath(`${siteFolder}/LocationBeacons`);
+            await ensureFolder(app, beaconsFolder);
+            for (const beacon of beacons) {
+              try {
+                const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName);
+                const base = chooseLocationBeaconFileName(beacon);
+                const filePath = normalizePath(`${beaconsFolder}/${base}.md`);
+                const result = await writeFileIfChanged(app, filePath, md);
+                if (result === 'created') summary.created += 1;
+                else if (result === 'updated') summary.updated += 1;
+                else summary.unchanged += 1;
+              } catch (e) {
+                console.error('Link Labs Sync: failed to write a location beacon note', e);
+                summary.errors += 1;
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Link Labs Sync: error fetching location beacons', e);
           summary.errors += 1;
         }
       }

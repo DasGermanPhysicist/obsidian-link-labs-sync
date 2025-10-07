@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   concurrency: 2,
   maxPagesPerSite: 1,
   syncAreas: true,
+  syncLocationBeacons: true,
 };
 
 export class LinkLabsSettingTab extends PluginSettingTab {
@@ -91,6 +92,16 @@ export class LinkLabsSettingTab extends PluginSettingTab {
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.syncAreas ?? true).onChange(async (value) => {
           this.plugin.settings.syncAreas = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName('Sync Location Beacons')
+      .setDesc('Also fetch and write Location Beacon notes under each site')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.syncLocationBeacons ?? true).onChange(async (value) => {
+          this.plugin.settings.syncLocationBeacons = value;
           await this.plugin.saveSettings();
         })
       );

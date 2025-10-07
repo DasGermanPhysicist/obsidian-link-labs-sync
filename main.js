@@ -39,7 +39,8 @@ var DEFAULT_SETTINGS = {
   backgroundSync: true,
   concurrency: 2,
   maxPagesPerSite: 1,
-  syncAreas: true
+  syncAreas: true,
+  syncLocationBeacons: true
 };
 var LinkLabsSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
@@ -81,6 +82,12 @@ var LinkLabsSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    new import_obsidian.Setting(containerEl).setName("Sync Location Beacons").setDesc("Also fetch and write Location Beacon notes under each site").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.syncLocationBeacons ?? true).onChange(async (value) => {
+        this.plugin.settings.syncLocationBeacons = value;
+        await this.plugin.saveSettings();
+      })
+    );
     new import_obsidian.Setting(containerEl).setName("Background sync").setDesc("Run automatic sync on an interval").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.backgroundSync).onChange(async (value) => {
         this.plugin.settings.backgroundSync = value;
@@ -119,6 +126,7 @@ var BASE_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfin
 var SITE_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/site";
 var AREAS_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/areas";
 var ZONES_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/zones";
+var LOCATIONS_URL = "https://networkasset-conductor.link-labs.com/networkAsset/airfinder/locations";
 function basicAuthHeader({ username, password }) {
   const toBase64 = (s) => typeof btoa === "function" ? btoa(s) : Buffer.from(s, "utf8").toString("base64");
   const token = toBase64(`${username}:${password}`);
@@ -153,6 +161,26 @@ async function fetchZonesForArea(areaId, creds) {
   const res = await requestWithRetry(url, headers, { method: "GET" });
   if (res.status >= 400) {
     console.warn(`Link Labs Sync: zones ${res.status} for area ${areaId}`);
+    return [];
+  }
+  let data = null;
+  try {
+    data = typeof res.json === "function" ? await res.json() : JSON.parse(res.text || "[]");
+  } catch (e) {
+    data = [];
+  }
+  const list = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.data) ? data.data : [];
+  return list;
+}
+async function fetchLocationBeaconsForSite(siteId, creds) {
+  const url = `${LOCATIONS_URL}?siteId=${encodeURIComponent(siteId)}`;
+  const headers = {
+    Authorization: basicAuthHeader(creds),
+    Accept: "application/json"
+  };
+  const res = await requestWithRetry(url, headers, { method: "GET" });
+  if (res.status >= 400) {
+    console.warn(`Link Labs Sync: location beacons ${res.status} for site ${siteId}`);
     return [];
   }
   let data = null;
@@ -327,6 +355,40 @@ function zoneToMarkdown(zone, siteId, areaLocation, siteName, orgName) {
 function chooseZoneFileName(zone) {
   const props = zone?.assetInfo?.metadata?.props || {};
   const base = zone.value || props.name || zone.id || "zone";
+  return sanitizeFileName(base);
+}
+function locationBeaconToMarkdown(beacon, siteId, siteName, orgName) {
+  const props = beacon?.assetInfo?.metadata?.props || {};
+  const name = val(beacon.nodeName || props.name || beacon.nodeAddress || "beacon");
+  const macAddress = val(props.macAddress);
+  const installedLatitude = val(props.installedLatitude);
+  const installedLongitude = val(props.installedLongitude);
+  const zoneId = val(props.zoneId);
+  const zoneName = val(props.zoneName);
+  let locationVal = "";
+  if (installedLatitude && installedLongitude) {
+    locationVal = `${installedLatitude},${installedLongitude}`;
+  }
+  const lines = [
+    "---",
+    `location: "${locationVal}"`,
+    `LL_name: ${name}`,
+    `LL_macid: ${macAddress}`,
+    `LL_siteId: ${val(siteId)}`,
+    `LL_sitename: ${val(siteName)}`,
+    `LL_orgname: ${val(orgName)}`,
+    `LL_zoneId: ${zoneId}`,
+    `LL_zoneName: ${zoneName}`,
+    "---",
+    "",
+    "#LL_locationbeacon",
+    ""
+  ];
+  return lines.join("\n");
+}
+function chooseLocationBeaconFileName(beacon) {
+  const props = beacon?.assetInfo?.metadata?.props || {};
+  const base = beacon.nodeName || props.name || beacon.nodeAddress || "beacon";
   return sanitizeFileName(base);
 }
 function normalizeIsoAssumeUtc(input) {
@@ -509,6 +571,32 @@ async function syncAll(app, settings) {
           }
         } catch (e) {
           console.error("Link Labs Sync: error fetching areas", e);
+          summary.errors += 1;
+        }
+      }
+      if (settings.syncLocationBeacons ?? true) {
+        try {
+          const beacons = await fetchLocationBeaconsForSite(siteId, creds);
+          if (beacons.length) {
+            const beaconsFolder = (0, import_obsidian4.normalizePath)(`${siteFolder}/LocationBeacons`);
+            await ensureFolder(app, beaconsFolder);
+            for (const beacon of beacons) {
+              try {
+                const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName);
+                const base = chooseLocationBeaconFileName(beacon);
+                const filePath = (0, import_obsidian4.normalizePath)(`${beaconsFolder}/${base}.md`);
+                const result = await writeFileIfChanged(app, filePath, md);
+                if (result === "created") summary.created += 1;
+                else if (result === "updated") summary.updated += 1;
+                else summary.unchanged += 1;
+              } catch (e) {
+                console.error("Link Labs Sync: failed to write a location beacon note", e);
+                summary.errors += 1;
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Link Labs Sync: error fetching location beacons", e);
           summary.errors += 1;
         }
       }

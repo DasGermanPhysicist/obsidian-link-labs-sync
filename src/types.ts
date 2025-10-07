@@ -8,6 +8,7 @@ export interface PluginSettings {
   concurrency: number; // for future use
   maxPagesPerSite: number; // cap pagination per site
   syncAreas?: boolean; // enable/disable syncing of Areas
+  syncLocationBeacons?: boolean; // enable/disable syncing of Location Beacons
 }
 
 export interface Credentials {
@@ -76,6 +77,39 @@ export interface Zone {
         siteId?: string | null;
         zoneCategoryId?: string | null;
         zoneCategoryName?: string | null;
+      } | null;
+      tags?: any[];
+    } | null;
+    enabled?: boolean;
+  } | null;
+}
+
+export interface LocationBeacon {
+  nodeAddress?: string | null;
+  nodeName?: string | null;
+  initialDetectionTime?: string | null;
+  registrationTime?: string | null;
+  registrationToken?: string | null;
+  assetInfo?: {
+    metadata?: {
+      props?: {
+        installedLatitude?: string | null;
+        installedLongitude?: string | null;
+        latitude?: string | null;
+        longitude?: string | null;
+        macAddress?: string | null;
+        name?: string | null;
+        siteId?: string | null;
+        siteName?: string | null;
+        areaId?: string | null;
+        areaName?: string | null;
+        zoneId?: string | null;
+        zoneName?: string | null;
+        lastEventTime?: string | null;
+        deviceType?: string | null;
+        batteryVoltage?: string | null;
+        batteryStatus?: string | null;
+        [key: string]: any;
       } | null;
       tags?: any[];
     } | null;
