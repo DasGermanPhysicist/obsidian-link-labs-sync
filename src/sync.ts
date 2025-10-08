@@ -124,7 +124,7 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
                   }
                 }
 
-                const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo);
+                const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo, settings.customFields);
                 const base = chooseLocationBeaconFileName(beacon);
                 const filePath = normalizePath(`${beaconsFolder}/${base}.md`);
                 const macid = beacon?.assetInfo?.metadata?.props?.macAddress || null;
@@ -167,7 +167,7 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
             }
           }
 
-          const md = assetToMarkdown(asset, addressInfo);
+          const md = assetToMarkdown(asset, addressInfo, settings.customFields);
           const base = chooseBaseFileName(asset);
           const filePath = normalizePath(`${siteFolder}/${base}.md`);
           const macid = asset.macAddress || null;

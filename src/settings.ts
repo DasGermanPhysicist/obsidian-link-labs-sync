@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   syncAreas: true,
   syncLocationBeacons: true,
   resolveAddresses: false,
+  customFields: '',
 };
 
 export class LinkLabsSettingTab extends PluginSettingTab {
@@ -115,6 +116,52 @@ export class LinkLabsSettingTab extends PluginSettingTab {
           this.plugin.settings.resolveAddresses = value;
           await this.plugin.saveSettings();
         })
+      );
+
+    // Custom Fields Configuration
+    const customFieldsDesc = document.createDocumentFragment();
+    customFieldsDesc.appendText('Extract additional fields from JSON payload using dot notation paths. ');
+    
+    const exampleLink = customFieldsDesc.createEl('a', {
+      text: 'Show example',
+      href: '#',
+    });
+    exampleLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      const textarea = containerEl.querySelector('textarea[placeholder*="Custom Fields"]') as HTMLTextAreaElement;
+      if (textarea) {
+        textarea.value = `{
+  "assets": {
+    "LL_temperature_f": "fahrenheit",
+    "LL_humidity": "rel_humidity", 
+    "LL_geo_accuracy": "geoAccuracy",
+    "LL_low_voltage": "lowVoltageFlag",
+    "LL_battery_status": "batteryStatus"
+  },
+  "locationBeacons": {
+    "LL_battery_voltage": "assetInfo.metadata.props.batteryVoltage",
+    "LL_device_type": "assetInfo.metadata.props.deviceType",
+    "LL_rssi": "assetInfo.metadata.props.rssi",
+    "LL_firmware": "assetInfo.metadata.props.fwVersion",
+    "LL_uptime_seconds": "assetInfo.metadata.props.uptimeSeconds"
+  }
+}`;
+        this.plugin.settings.customFields = textarea.value;
+        this.plugin.saveSettings();
+      }
+    });
+
+    new Setting(containerEl)
+      .setName('Custom Fields')
+      .setDesc(customFieldsDesc)
+      .addTextArea((text) =>
+        text
+          .setPlaceholder('Custom Fields JSON Configuration (optional)')
+          .setValue(this.plugin.settings.customFields || '')
+          .onChange(async (value) => {
+            this.plugin.settings.customFields = value;
+            await this.plugin.saveSettings();
+          })
       );
 
     new Setting(containerEl)

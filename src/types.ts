@@ -10,6 +10,7 @@ export interface PluginSettings {
   syncAreas?: boolean; // enable/disable syncing of Areas
   syncLocationBeacons?: boolean; // enable/disable syncing of Location Beacons
   resolveAddresses?: boolean; // enable/disable address resolution from coordinates
+  customFields?: string; // JSON configuration for custom field extraction
 }
 
 export interface Credentials {
@@ -25,6 +26,13 @@ export interface AddressInfo {
   postcode?: string | null;
   country?: string | null;
   display_name?: string | null;
+}
+
+export interface CustomFieldConfig {
+  assets?: Record<string, string>;
+  locationBeacons?: Record<string, string>;
+  areas?: Record<string, string>;
+  zones?: Record<string, string>;
 }
 
 export interface Asset {

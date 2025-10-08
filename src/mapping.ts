@@ -1,8 +1,55 @@
-import type { Asset, Area, Zone, LocationBeacon, AddressInfo } from './types';
+import type { Asset, Area, Zone, LocationBeacon, AddressInfo, CustomFieldConfig } from './types';
 
 function val(v: any): string {
   if (v === null || v === undefined) return '';
   return String(v);
+}
+
+// Extract value from object using dot notation path (e.g., "assetInfo.metadata.props.batteryVoltage")
+function extractValueByPath(obj: any, path: string): any {
+  if (!obj || !path) return null;
+  
+  const parts = path.split('.');
+  let current = obj;
+  
+  for (const part of parts) {
+    if (current === null || current === undefined) return null;
+    current = current[part];
+  }
+  
+  return current;
+}
+
+// Parse custom field configuration from JSON string
+function parseCustomFieldConfig(configJson: string): CustomFieldConfig | null {
+  if (!configJson || !configJson.trim()) return null;
+  
+  try {
+    const config = JSON.parse(configJson);
+    return config as CustomFieldConfig;
+  } catch (e) {
+    console.warn('Link Labs Sync: Invalid custom field configuration JSON', e);
+    return null;
+  }
+}
+
+// Extract custom fields from entity using configuration
+function extractCustomFields(entity: any, fieldMappings: Record<string, string> | undefined): Record<string, string> {
+  const customFields: Record<string, string> = {};
+  
+  if (!fieldMappings || !entity) return customFields;
+  
+  for (const [fieldName, path] of Object.entries(fieldMappings)) {
+    try {
+      const value = extractValueByPath(entity, path);
+      customFields[fieldName] = val(value);
+    } catch (e) {
+      console.warn(`Link Labs Sync: Failed to extract custom field ${fieldName} from path ${path}`, e);
+      customFields[fieldName] = '';
+    }
+  }
+  
+  return customFields;
 }
 
 export function areaToMarkdown(area: Area, siteId: string, siteName?: string | null, orgName?: string | null): string {
@@ -91,7 +138,7 @@ export function chooseZoneFileName(zone: Zone): string {
   return sanitizeFileName(base);
 }
 
-export function locationBeaconToMarkdown(beacon: LocationBeacon, siteId: string, siteName?: string | null, orgName?: string | null, addressInfo?: AddressInfo | null): string {
+export function locationBeaconToMarkdown(beacon: LocationBeacon, siteId: string, siteName?: string | null, orgName?: string | null, addressInfo?: AddressInfo | null, customFieldConfig?: string | null): string {
   const props = beacon?.assetInfo?.metadata?.props || {} as any;
   const name = val(beacon.nodeName || props.name || beacon.nodeAddress || 'beacon');
   const macAddress = val(props.macAddress);
@@ -127,6 +174,17 @@ export function locationBeaconToMarkdown(beacon: LocationBeacon, siteId: string,
     lines.push(`LL_postcode: ${val(addressInfo.postcode)}`);
     lines.push(`LL_country: ${val(addressInfo.country)}`);
     lines.push(`LL_address: ${val(addressInfo.display_name)}`);
+  }
+
+  // Add custom fields if configured
+  if (customFieldConfig) {
+    const config = parseCustomFieldConfig(customFieldConfig);
+    if (config?.locationBeacons) {
+      const customFields = extractCustomFields(beacon, config.locationBeacons);
+      for (const [fieldName, value] of Object.entries(customFields)) {
+        lines.push(`${fieldName}: ${value}`);
+      }
+    }
   }
 
   lines.push('---', '', '#LL_locationbeacon', '');
@@ -177,7 +235,7 @@ function toLocalIsoWithOffset(input: any): string {
   return `${year}-${month}-${day}T${hours}:${mins}:${secs}${sign}${offH}:${offM}`;
 }
 
-export function assetToMarkdown(asset: Asset, addressInfo?: AddressInfo | null): string {
+export function assetToMarkdown(asset: Asset, addressInfo?: AddressInfo | null, customFieldConfig?: string | null): string {
   const latitude = val(asset.latitude);
   const longitude = val(asset.longitude);
   const mac = val(asset.macAddress);
@@ -217,6 +275,17 @@ export function assetToMarkdown(asset: Asset, addressInfo?: AddressInfo | null):
     lines.push(`LL_postcode: ${val(addressInfo.postcode)}`);
     lines.push(`LL_country: ${val(addressInfo.country)}`);
     lines.push(`LL_address: ${val(addressInfo.display_name)}`);
+  }
+
+  // Add custom fields if configured
+  if (customFieldConfig) {
+    const config = parseCustomFieldConfig(customFieldConfig);
+    if (config?.assets) {
+      const customFields = extractCustomFields(asset, config.assets);
+      for (const [fieldName, value] of Object.entries(customFields)) {
+        lines.push(`${fieldName}: ${value}`);
+      }
+    }
   }
 
   lines.push('---', '', '#LL_asset', '');

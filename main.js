@@ -41,7 +41,8 @@ var DEFAULT_SETTINGS = {
   maxPagesPerSite: 1,
   syncAreas: true,
   syncLocationBeacons: true,
-  resolveAddresses: false
+  resolveAddresses: false,
+  customFields: ""
 };
 var LinkLabsSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
@@ -92,6 +93,42 @@ var LinkLabsSettingTab = class extends import_obsidian.PluginSettingTab {
     new import_obsidian.Setting(containerEl).setName("Resolve Addresses").setDesc("Resolve coordinates to human-readable addresses (adds LL_road, LL_city, LL_state, etc.)").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.resolveAddresses ?? false).onChange(async (value) => {
         this.plugin.settings.resolveAddresses = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    const customFieldsDesc = document.createDocumentFragment();
+    customFieldsDesc.appendText("Extract additional fields from JSON payload using dot notation paths. ");
+    const exampleLink = customFieldsDesc.createEl("a", {
+      text: "Show example",
+      href: "#"
+    });
+    exampleLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      const textarea = containerEl.querySelector('textarea[placeholder*="Custom Fields"]');
+      if (textarea) {
+        textarea.value = `{
+  "assets": {
+    "LL_temperature_f": "fahrenheit",
+    "LL_humidity": "rel_humidity", 
+    "LL_geo_accuracy": "geoAccuracy",
+    "LL_low_voltage": "lowVoltageFlag",
+    "LL_battery_status": "batteryStatus"
+  },
+  "locationBeacons": {
+    "LL_battery_voltage": "assetInfo.metadata.props.batteryVoltage",
+    "LL_device_type": "assetInfo.metadata.props.deviceType",
+    "LL_rssi": "assetInfo.metadata.props.rssi",
+    "LL_firmware": "assetInfo.metadata.props.fwVersion",
+    "LL_uptime_seconds": "assetInfo.metadata.props.uptimeSeconds"
+  }
+}`;
+        this.plugin.settings.customFields = textarea.value;
+        this.plugin.saveSettings();
+      }
+    });
+    new import_obsidian.Setting(containerEl).setName("Custom Fields").setDesc(customFieldsDesc).addTextArea(
+      (text) => text.setPlaceholder("Custom Fields JSON Configuration (optional)").setValue(this.plugin.settings.customFields || "").onChange(async (value) => {
+        this.plugin.settings.customFields = value;
         await this.plugin.saveSettings();
       })
     );
@@ -325,6 +362,40 @@ function val(v) {
   if (v === null || v === void 0) return "";
   return String(v);
 }
+function extractValueByPath(obj, path) {
+  if (!obj || !path) return null;
+  const parts = path.split(".");
+  let current = obj;
+  for (const part of parts) {
+    if (current === null || current === void 0) return null;
+    current = current[part];
+  }
+  return current;
+}
+function parseCustomFieldConfig(configJson) {
+  if (!configJson || !configJson.trim()) return null;
+  try {
+    const config = JSON.parse(configJson);
+    return config;
+  } catch (e) {
+    console.warn("Link Labs Sync: Invalid custom field configuration JSON", e);
+    return null;
+  }
+}
+function extractCustomFields(entity, fieldMappings) {
+  const customFields = {};
+  if (!fieldMappings || !entity) return customFields;
+  for (const [fieldName, path] of Object.entries(fieldMappings)) {
+    try {
+      const value = extractValueByPath(entity, path);
+      customFields[fieldName] = val(value);
+    } catch (e) {
+      console.warn(`Link Labs Sync: Failed to extract custom field ${fieldName} from path ${path}`, e);
+      customFields[fieldName] = "";
+    }
+  }
+  return customFields;
+}
 function areaToMarkdown(area, siteId, siteName, orgName) {
   const props = area?.assetInfo?.metadata?.props || {};
   const areaLocation = val(props.areaLocation);
@@ -399,7 +470,7 @@ function chooseZoneFileName(zone) {
   const base = zone.value || props.name || zone.id || "zone";
   return sanitizeFileName(base);
 }
-function locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo) {
+function locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo, customFieldConfig) {
   const props = beacon?.assetInfo?.metadata?.props || {};
   const name = val(beacon.nodeName || props.name || beacon.nodeAddress || "beacon");
   const macAddress = val(props.macAddress);
@@ -430,6 +501,15 @@ function locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo
     lines.push(`LL_postcode: ${val(addressInfo.postcode)}`);
     lines.push(`LL_country: ${val(addressInfo.country)}`);
     lines.push(`LL_address: ${val(addressInfo.display_name)}`);
+  }
+  if (customFieldConfig) {
+    const config = parseCustomFieldConfig(customFieldConfig);
+    if (config?.locationBeacons) {
+      const customFields = extractCustomFields(beacon, config.locationBeacons);
+      for (const [fieldName, value] of Object.entries(customFields)) {
+        lines.push(`${fieldName}: ${value}`);
+      }
+    }
   }
   lines.push("---", "", "#LL_locationbeacon", "");
   return lines.join("\n");
@@ -471,7 +551,7 @@ function toLocalIsoWithOffset(input) {
   const offM = pad(offsetMin % 60);
   return `${year}-${month}-${day}T${hours}:${mins}:${secs}${sign}${offH}:${offM}`;
 }
-function assetToMarkdown(asset, addressInfo) {
+function assetToMarkdown(asset, addressInfo, customFieldConfig) {
   const latitude = val(asset.latitude);
   const longitude = val(asset.longitude);
   const mac = val(asset.macAddress);
@@ -508,6 +588,15 @@ function assetToMarkdown(asset, addressInfo) {
     lines.push(`LL_postcode: ${val(addressInfo.postcode)}`);
     lines.push(`LL_country: ${val(addressInfo.country)}`);
     lines.push(`LL_address: ${val(addressInfo.display_name)}`);
+  }
+  if (customFieldConfig) {
+    const config = parseCustomFieldConfig(customFieldConfig);
+    if (config?.assets) {
+      const customFields = extractCustomFields(asset, config.assets);
+      for (const [fieldName, value] of Object.entries(customFields)) {
+        lines.push(`${fieldName}: ${value}`);
+      }
+    }
   }
   lines.push("---", "", "#LL_asset", "");
   return lines.join("\n");
@@ -761,7 +850,7 @@ async function syncAll(app, settings) {
                     }
                   }
                 }
-                const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo);
+                const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo, settings.customFields);
                 const base = chooseLocationBeaconFileName(beacon);
                 const filePath = (0, import_obsidian4.normalizePath)(`${beaconsFolder}/${base}.md`);
                 const macid = beacon?.assetInfo?.metadata?.props?.macAddress || null;
@@ -798,7 +887,7 @@ async function syncAll(app, settings) {
               }
             }
           }
-          const md = assetToMarkdown(asset, addressInfo);
+          const md = assetToMarkdown(asset, addressInfo, settings.customFields);
           const base = chooseBaseFileName(asset);
           const filePath = (0, import_obsidian4.normalizePath)(`${siteFolder}/${base}.md`);
           const macid = asset.macAddress || null;
