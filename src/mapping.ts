@@ -81,9 +81,9 @@ export function areaToMarkdown(area: Area, siteId: string, siteName?: string | n
     `LL_siteId: ${val(siteId)}`,
     `LL_sitename: ${val(siteName)}`,
     `LL_orgname: ${val(orgName)}`,
+    'tags:',
+    '  - LL_area',
     '---',
-    '',
-    '#LL_area',
     '',
   ];
   return lines.join('\n');
@@ -124,9 +124,9 @@ export function zoneToMarkdown(zone: Zone, siteId: string, areaLocation?: string
     `LL_siteId: ${val(siteId)}`,
     `LL_sitename: ${val(siteName)}`,
     `LL_orgname: ${val(orgName)}`,
+    'tags:',
+    '  - LL_zone',
     '---',
-    '',
-    '#LL_zone',
     '',
   ];
   return lines.join('\n');
@@ -187,13 +187,21 @@ export function locationBeaconToMarkdown(beacon: LocationBeacon, siteId: string,
     }
   }
 
-  lines.push('---', '', '#LL_locationbeacon', '');
+  lines.push('tags:', '  - LL_locationbeacon', '---', '');
   return lines.join('\n');
 }
 
 export function chooseLocationBeaconFileName(beacon: LocationBeacon): string {
   const props = beacon?.assetInfo?.metadata?.props || {} as any;
   const base = (beacon.nodeName || props.name || beacon.nodeAddress || 'beacon') as string;
+  const macAddress = props.macAddress;
+  
+  // If we have a macAddress, append last 4 characters to make filename unique
+  if (macAddress && macAddress.length >= 4) {
+    const suffix = macAddress.slice(-5).replace(':', ''); // Last 4 chars without colon
+    return sanitizeFileName(`${base}_${suffix}`);
+  }
+  
   return sanitizeFileName(base);
 }
 
@@ -249,6 +257,8 @@ export function assetToMarkdown(asset: Asset, addressInfo?: AddressInfo | null, 
   const siteId = val(asset.siteId);
   const siteName = val(asset.siteName);
   const orgName = val(asset.orgName);
+  const field1 = val((asset as any).field1);
+  const field2 = val((asset as any).field2);
 
   const lines = [
     '---',
@@ -264,6 +274,8 @@ export function assetToMarkdown(asset: Asset, addressInfo?: AddressInfo | null, 
     `LL_siteId: ${siteId}`,
     `LL_sitename: ${siteName}`,
     `LL_orgname: ${orgName}`,
+    `LL_field1: ${field1}`,
+    `LL_field2: ${field2}`,
   ];
 
   // Add address fields if available
@@ -288,13 +300,21 @@ export function assetToMarkdown(asset: Asset, addressInfo?: AddressInfo | null, 
     }
   }
 
-  lines.push('---', '', '#LL_asset', '');
+  lines.push('tags:', '  - LL_asset', '---', '');
 
   return lines.join('\n');
 }
 
 export function chooseBaseFileName(asset: Asset): string {
-  const primary = (asset.nodeName || asset.description || asset.macAddress || 'asset') as string;
+  const primary = (asset.nodeName || asset.description || 'asset') as string;
+  const macAddress = asset.macAddress;
+  
+  // If we have a macAddress, append last 4 characters to make filename unique
+  if (macAddress && macAddress.length >= 4) {
+    const suffix = macAddress.slice(-5).replace(':', ''); // Last 4 chars without colon
+    return sanitizeFileName(`${primary}_${suffix}`);
+  }
+  
   return sanitizeFileName(primary);
 }
 

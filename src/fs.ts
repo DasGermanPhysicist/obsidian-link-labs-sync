@@ -1,6 +1,6 @@
 import { App, normalizePath, TFile, TFolder } from 'obsidian';
 
-// In-memory index of macid -> file path for performance
+// In-memory index of LL_macid -> file path for performance
 const macidIndex = new Map<string, string>();
 
 export async function ensureFolder(app: App, folderPath: string): Promise<TFolder> {
@@ -57,19 +57,48 @@ function parseFrontmatter(content: string): { frontmatter: Record<string, any>; 
   const body = frontmatterMatch[2];
   const frontmatter: Record<string, any> = {};
   
-  // Parse YAML-like frontmatter (simple key: value pairs)
+  // Parse YAML-like frontmatter (simple key: value pairs and arrays)
   const lines = frontmatterText.split('\n');
+  let currentKey: string | null = null;
+  let currentArray: string[] = [];
+  
   for (const line of lines) {
+    const arrayMatch = line.match(/^\s*-\s+(.+)$/);
+    if (arrayMatch && currentKey) {
+      // This is an array item
+      currentArray.push(arrayMatch[1].trim());
+      continue;
+    }
+    
+    // If we were building an array, save it
+    if (currentKey && currentArray.length > 0) {
+      frontmatter[currentKey] = currentArray;
+      currentKey = null;
+      currentArray = [];
+    }
+    
     const match = line.match(/^([^:]+):\s*(.*)$/);
     if (match) {
       const key = match[1].trim();
       let value = match[2].trim();
-      // Remove quotes if present
-      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1);
+      
+      if (value === '' || value === null) {
+        // This might be the start of an array
+        currentKey = key;
+        currentArray = [];
+      } else {
+        // Remove quotes if present
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1);
+        }
+        frontmatter[key] = value;
       }
-      frontmatter[key] = value;
     }
+  }
+  
+  // Handle any remaining array
+  if (currentKey && currentArray.length > 0) {
+    frontmatter[currentKey] = currentArray;
   }
   
   return { frontmatter, body };
@@ -83,9 +112,9 @@ function mergeWithExistingContent(existingContent: string, newContent: string): 
   // Merge frontmatter: preserve existing non-LL fields, update LL fields
   const mergedFm = { ...existingFm };
   
-  // Update only LL_* fields from new content
+  // Update only LL_* fields, location, and tags from new content
   for (const [key, value] of Object.entries(newFm)) {
-    if (key.startsWith('LL_') || key === 'location') {
+    if (key.startsWith('LL_') || key === 'location' || key === 'tags') {
       mergedFm[key] = value;
     }
   }
@@ -93,7 +122,13 @@ function mergeWithExistingContent(existingContent: string, newContent: string): 
   // Rebuild frontmatter
   const frontmatterLines = ['---'];
   for (const [key, value] of Object.entries(mergedFm)) {
-    if (typeof value === 'string' && (value.includes(',') || value.includes(' ') || value === '')) {
+    if (key === 'tags' && Array.isArray(value)) {
+      // Handle tags array specially
+      frontmatterLines.push('tags:');
+      for (const tag of value) {
+        frontmatterLines.push(`  - ${tag}`);
+      }
+    } else if (typeof value === 'string' && (value.includes(',') || value.includes(' ') || value === '')) {
       frontmatterLines.push(`${key}: "${value}"`);
     } else {
       frontmatterLines.push(`${key}: ${value}`);
@@ -104,7 +139,7 @@ function mergeWithExistingContent(existingContent: string, newContent: string): 
   return frontmatterLines.join('\n') + existingBody;
 }
 
-// Build index of macid -> file path for a folder
+// Build index of LL_macid -> file path for a folder
 export async function buildMacidIndex(app: App, folderPath: string): Promise<void> {
   const folder = app.vault.getAbstractFileByPath(normalizePath(folderPath));
   if (!folder || !(folder instanceof TFolder)) return;
@@ -114,12 +149,12 @@ export async function buildMacidIndex(app: App, folderPath: string): Promise<voi
     
     try {
       const content = await app.vault.read(file);
-      const macid = extractMacidFromContent(content);
-      if (macid) {
-        macidIndex.set(macid, file.path);
+      const llMacid = extractMacidFromContent(content);
+      if (llMacid) {
+        macidIndex.set(llMacid, file.path);
       }
     } catch (e) {
-      console.warn(`Link Labs Sync: failed to read file for macid indexing: ${file.path}`, e);
+      console.warn(`Link Labs Sync: failed to read file for LL_macid indexing: ${file.path}`, e);
     }
   };
 
@@ -136,21 +171,21 @@ export async function buildMacidIndex(app: App, folderPath: string): Promise<voi
   await processFolder(folder);
 }
 
-// Find existing file by macid
-export async function findFileByMacid(app: App, macid: string): Promise<TFile | null> {
-  if (!macid) return null;
+// Find existing file by LL_macid
+export async function findFileByMacid(app: App, llMacid: string): Promise<TFile | null> {
+  if (!llMacid) return null;
   
-  const filePath = macidIndex.get(macid);
+  const filePath = macidIndex.get(llMacid);
   if (!filePath) return null;
   
   const file = app.vault.getAbstractFileByPath(filePath);
   return (file instanceof TFile) ? file : null;
 }
 
-// Update macid index when files are created/updated
-export function updateMacidIndex(filePath: string, macid: string | null): void {
-  if (macid) {
-    macidIndex.set(macid, filePath);
+// Update LL_macid index when files are created/updated
+export function updateMacidIndex(filePath: string, llMacid: string | null): void {
+  if (llMacid) {
+    macidIndex.set(llMacid, filePath);
   }
 }
 
@@ -169,21 +204,21 @@ export function removeMacidIndex(filePath: string, macid?: string): void {
   }
 }
 
-// Write file with macid-based tracking (for assets and location beacons)
+// Write file with LL_macid-based tracking (for assets and location beacons)
 export async function writeFileWithMacidTracking(
   app: App, 
   preferredFilePath: string, 
   content: string, 
-  macid: string | null
+  llMacid: string | null
 ): Promise<'created' | 'updated' | 'unchanged'> {
-  // If no macid, fall back to regular file writing
-  if (!macid) {
+  // If no LL_macid, fall back to regular file writing
+  if (!llMacid) {
     const result = await writeFileIfChanged(app, preferredFilePath, content);
     return result;
   }
 
-  // Check if file with this macid already exists
-  const existingFile = await findFileByMacid(app, macid);
+  // Check if file with this LL_macid already exists
+  const existingFile = await findFileByMacid(app, llMacid);
   
   if (existingFile) {
     // File exists - preserve filename and merge content selectively
@@ -199,9 +234,27 @@ export async function writeFileWithMacidTracking(
   } else {
     // No existing file with this macid, create new one
     const normalized = normalizePath(preferredFilePath);
-    await app.vault.create(normalized, content);
-    // Add to index
-    updateMacidIndex(normalized, macid);
-    return 'created';
+    
+    // Check if file already exists at the preferred path (could be from outside our tracking)
+    const existingAtPath = app.vault.getAbstractFileByPath(normalized);
+    if (existingAtPath instanceof TFile) {
+      // File exists but not in our macid index - update it instead
+      const currentContent = await app.vault.read(existingAtPath);
+      const mergedContent = mergeWithExistingContent(currentContent, content);
+      
+      if (currentContent !== mergedContent) {
+        await app.vault.modify(existingAtPath, mergedContent);
+      }
+      
+      // Add to index for future tracking
+      updateMacidIndex(normalized, llMacid);
+      return currentContent !== mergedContent ? 'updated' : 'unchanged';
+    } else {
+      // Safe to create new file
+      await app.vault.create(normalized, content);
+      // Add to index
+      updateMacidIndex(normalized, llMacid);
+      return 'created';
+    }
   }
 }

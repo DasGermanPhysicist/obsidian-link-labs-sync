@@ -419,9 +419,9 @@ function areaToMarkdown(area, siteId, siteName, orgName) {
     `LL_siteId: ${val(siteId)}`,
     `LL_sitename: ${val(siteName)}`,
     `LL_orgname: ${val(orgName)}`,
+    "tags:",
+    "  - LL_area",
     "---",
-    "",
-    "#LL_area",
     ""
   ];
   return lines.join("\n");
@@ -456,9 +456,9 @@ function zoneToMarkdown(zone, siteId, areaLocation, siteName, orgName) {
     `LL_siteId: ${val(siteId)}`,
     `LL_sitename: ${val(siteName)}`,
     `LL_orgname: ${val(orgName)}`,
+    "tags:",
+    "  - LL_zone",
     "---",
-    "",
-    "#LL_zone",
     ""
   ];
   return lines.join("\n");
@@ -509,12 +509,17 @@ function locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo
       }
     }
   }
-  lines.push("---", "", "#LL_locationbeacon", "");
+  lines.push("tags:", "  - LL_locationbeacon", "---", "");
   return lines.join("\n");
 }
 function chooseLocationBeaconFileName(beacon) {
   const props = beacon?.assetInfo?.metadata?.props || {};
   const base = beacon.nodeName || props.name || beacon.nodeAddress || "beacon";
+  const macAddress = props.macAddress;
+  if (macAddress && macAddress.length >= 4) {
+    const suffix = macAddress.slice(-5).replace(":", "");
+    return sanitizeFileName(`${base}_${suffix}`);
+  }
   return sanitizeFileName(base);
 }
 function normalizeIsoAssumeUtc(input) {
@@ -563,6 +568,8 @@ function assetToMarkdown(asset, addressInfo, customFieldConfig) {
   const siteId = val(asset.siteId);
   const siteName = val(asset.siteName);
   const orgName = val(asset.orgName);
+  const field1 = val(asset.field1);
+  const field2 = val(asset.field2);
   const lines = [
     "---",
     `location: "${latitude},${longitude}"`,
@@ -576,7 +583,9 @@ function assetToMarkdown(asset, addressInfo, customFieldConfig) {
     `LL_lastEventTimeLocal: "${lastEventTimeLocal}"`,
     `LL_siteId: ${siteId}`,
     `LL_sitename: ${siteName}`,
-    `LL_orgname: ${orgName}`
+    `LL_orgname: ${orgName}`,
+    `LL_field1: ${field1}`,
+    `LL_field2: ${field2}`
   ];
   if (addressInfo) {
     lines.push(`LL_road: ${val(addressInfo.road)}`);
@@ -596,11 +605,16 @@ function assetToMarkdown(asset, addressInfo, customFieldConfig) {
       }
     }
   }
-  lines.push("---", "", "#LL_asset", "");
+  lines.push("tags:", "  - LL_asset", "---", "");
   return lines.join("\n");
 }
 function chooseBaseFileName(asset) {
-  const primary = asset.nodeName || asset.description || asset.macAddress || "asset";
+  const primary = asset.nodeName || asset.description || "asset";
+  const macAddress = asset.macAddress;
+  if (macAddress && macAddress.length >= 4) {
+    const suffix = macAddress.slice(-5).replace(":", "");
+    return sanitizeFileName(`${primary}_${suffix}`);
+  }
   return sanitizeFileName(primary);
 }
 function sanitizeFileName(name) {
@@ -650,16 +664,36 @@ function parseFrontmatter(content) {
   const body = frontmatterMatch[2];
   const frontmatter = {};
   const lines = frontmatterText.split("\n");
+  let currentKey = null;
+  let currentArray = [];
   for (const line of lines) {
+    const arrayMatch = line.match(/^\s*-\s+(.+)$/);
+    if (arrayMatch && currentKey) {
+      currentArray.push(arrayMatch[1].trim());
+      continue;
+    }
+    if (currentKey && currentArray.length > 0) {
+      frontmatter[currentKey] = currentArray;
+      currentKey = null;
+      currentArray = [];
+    }
     const match = line.match(/^([^:]+):\s*(.*)$/);
     if (match) {
       const key = match[1].trim();
       let value = match[2].trim();
-      if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
-        value = value.slice(1, -1);
+      if (value === "" || value === null) {
+        currentKey = key;
+        currentArray = [];
+      } else {
+        if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+          value = value.slice(1, -1);
+        }
+        frontmatter[key] = value;
       }
-      frontmatter[key] = value;
     }
+  }
+  if (currentKey && currentArray.length > 0) {
+    frontmatter[currentKey] = currentArray;
   }
   return { frontmatter, body };
 }
@@ -668,13 +702,18 @@ function mergeWithExistingContent(existingContent, newContent) {
   const { frontmatter: newFm } = parseFrontmatter(newContent);
   const mergedFm = { ...existingFm };
   for (const [key, value] of Object.entries(newFm)) {
-    if (key.startsWith("LL_") || key === "location") {
+    if (key.startsWith("LL_") || key === "location" || key === "tags") {
       mergedFm[key] = value;
     }
   }
   const frontmatterLines = ["---"];
   for (const [key, value] of Object.entries(mergedFm)) {
-    if (typeof value === "string" && (value.includes(",") || value.includes(" ") || value === "")) {
+    if (key === "tags" && Array.isArray(value)) {
+      frontmatterLines.push("tags:");
+      for (const tag of value) {
+        frontmatterLines.push(`  - ${tag}`);
+      }
+    } else if (typeof value === "string" && (value.includes(",") || value.includes(" ") || value === "")) {
       frontmatterLines.push(`${key}: "${value}"`);
     } else {
       frontmatterLines.push(`${key}: ${value}`);
@@ -690,12 +729,12 @@ async function buildMacidIndex(app, folderPath) {
     if (!file.path.endsWith(".md")) return;
     try {
       const content = await app.vault.read(file);
-      const macid = extractMacidFromContent(content);
-      if (macid) {
-        macidIndex.set(macid, file.path);
+      const llMacid = extractMacidFromContent(content);
+      if (llMacid) {
+        macidIndex.set(llMacid, file.path);
       }
     } catch (e) {
-      console.warn(`Link Labs Sync: failed to read file for macid indexing: ${file.path}`, e);
+      console.warn(`Link Labs Sync: failed to read file for LL_macid indexing: ${file.path}`, e);
     }
   };
   const processFolder = async (folder2) => {
@@ -709,24 +748,24 @@ async function buildMacidIndex(app, folderPath) {
   };
   await processFolder(folder);
 }
-async function findFileByMacid(app, macid) {
-  if (!macid) return null;
-  const filePath = macidIndex.get(macid);
+async function findFileByMacid(app, llMacid) {
+  if (!llMacid) return null;
+  const filePath = macidIndex.get(llMacid);
   if (!filePath) return null;
   const file = app.vault.getAbstractFileByPath(filePath);
   return file instanceof import_obsidian3.TFile ? file : null;
 }
-function updateMacidIndex(filePath, macid) {
-  if (macid) {
-    macidIndex.set(macid, filePath);
+function updateMacidIndex(filePath, llMacid) {
+  if (llMacid) {
+    macidIndex.set(llMacid, filePath);
   }
 }
-async function writeFileWithMacidTracking(app, preferredFilePath, content, macid) {
-  if (!macid) {
+async function writeFileWithMacidTracking(app, preferredFilePath, content, llMacid) {
+  if (!llMacid) {
     const result = await writeFileIfChanged(app, preferredFilePath, content);
     return result;
   }
-  const existingFile = await findFileByMacid(app, macid);
+  const existingFile = await findFileByMacid(app, llMacid);
   if (existingFile) {
     const currentContent = await app.vault.read(existingFile);
     const mergedContent = mergeWithExistingContent(currentContent, content);
@@ -737,13 +776,31 @@ async function writeFileWithMacidTracking(app, preferredFilePath, content, macid
     return "updated";
   } else {
     const normalized = (0, import_obsidian3.normalizePath)(preferredFilePath);
-    await app.vault.create(normalized, content);
-    updateMacidIndex(normalized, macid);
-    return "created";
+    const existingAtPath = app.vault.getAbstractFileByPath(normalized);
+    if (existingAtPath instanceof import_obsidian3.TFile) {
+      const currentContent = await app.vault.read(existingAtPath);
+      const mergedContent = mergeWithExistingContent(currentContent, content);
+      if (currentContent !== mergedContent) {
+        await app.vault.modify(existingAtPath, mergedContent);
+      }
+      updateMacidIndex(normalized, llMacid);
+      return currentContent !== mergedContent ? "updated" : "unchanged";
+    } else {
+      await app.vault.create(normalized, content);
+      updateMacidIndex(normalized, llMacid);
+      return "created";
+    }
   }
 }
 
 // src/sync.ts
+function createSiteFolderName(siteName, siteId) {
+  if (siteName && siteName.trim()) {
+    const cleanSiteName = siteName.replace(/[<>:"/\\|?*]/g, "_").trim();
+    return `${cleanSiteName} (${siteId})`;
+  }
+  return siteId;
+}
 async function syncAll(app, settings) {
   const { username, password, siteIds, outputFolder } = settings;
   if (!username || !password || !siteIds?.length) {
@@ -770,7 +827,8 @@ async function syncAll(app, settings) {
       if (assets.length === 0) {
         new import_obsidian4.Notice(`Link Labs Sync: no assets returned for site ${siteId}`);
       }
-      const siteFolder = (0, import_obsidian4.normalizePath)(`${outputFolder}/${siteId}`);
+      const siteFolderName = createSiteFolderName(siteName, siteId);
+      const siteFolder = (0, import_obsidian4.normalizePath)(`${outputFolder}/${siteFolderName}`);
       await ensureFolder(app, outputFolder);
       await ensureFolder(app, siteFolder);
       if (settings.syncAreas ?? true) {
@@ -851,8 +909,8 @@ async function syncAll(app, settings) {
                 const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo, settings.customFields);
                 const base = chooseLocationBeaconFileName(beacon);
                 const filePath = (0, import_obsidian4.normalizePath)(`${beaconsFolder}/${base}.md`);
-                const macid = beacon?.assetInfo?.metadata?.props?.macAddress || null;
-                const result = await writeFileWithMacidTracking(app, filePath, md, macid);
+                const llMacid = beacon?.assetInfo?.metadata?.props?.macAddress || null;
+                const result = await writeFileWithMacidTracking(app, filePath, md, llMacid);
                 if (result === "created") summary.created += 1;
                 else if (result === "updated") summary.updated += 1;
                 else summary.unchanged += 1;
@@ -888,8 +946,8 @@ async function syncAll(app, settings) {
           const md = assetToMarkdown(asset, addressInfo, settings.customFields);
           const base = chooseBaseFileName(asset);
           const filePath = (0, import_obsidian4.normalizePath)(`${siteFolder}/${base}.md`);
-          const macid = asset.macAddress || null;
-          const result = await writeFileWithMacidTracking(app, filePath, md, macid);
+          const llMacid = asset.macAddress || null;
+          const result = await writeFileWithMacidTracking(app, filePath, md, llMacid);
           if (result === "created") summary.created += 1;
           else if (result === "updated") summary.updated += 1;
           else summary.unchanged += 1;

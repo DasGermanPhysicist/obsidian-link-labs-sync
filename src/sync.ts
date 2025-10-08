@@ -4,6 +4,17 @@ import { fetchAssetsForSite, fetchSiteInfo, fetchAreasForSite, fetchZonesForArea
 import { assetToMarkdown, chooseBaseFileName, areaToMarkdown, chooseAreaFileName, zoneToMarkdown, chooseZoneFileName, locationBeaconToMarkdown, chooseLocationBeaconFileName } from './mapping';
 import { ensureFolder, writeFileIfChanged, buildMacidIndex, writeFileWithMacidTracking } from './fs';
 
+// Helper function to create site folder name from siteName and siteId
+function createSiteFolderName(siteName: string | null, siteId: string): string {
+  if (siteName && siteName.trim()) {
+    // Sanitize siteName for use in folder name
+    const cleanSiteName = siteName.replace(/[<>:"/\\|?*]/g, '_').trim();
+    return `${cleanSiteName} (${siteId})`;
+  }
+  // Fallback to just siteId if no siteName
+  return siteId;
+}
+
 export async function syncAll(app: App, settings: PluginSettings): Promise<SyncSummary[]> {
   const { username, password, siteIds, outputFolder } = settings;
   if (!username || !password || !siteIds?.length) {
@@ -37,7 +48,8 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
       }
 
       // Ensure site folder exists (used for assets and areas)
-      const siteFolder = normalizePath(`${outputFolder}/${siteId}`);
+      const siteFolderName = createSiteFolderName(siteName, siteId);
+      const siteFolder = normalizePath(`${outputFolder}/${siteFolderName}`);
       await ensureFolder(app, outputFolder); // root
       await ensureFolder(app, siteFolder);
 
@@ -127,8 +139,8 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
                 const md = locationBeaconToMarkdown(beacon, siteId, siteName, orgName, addressInfo, settings.customFields);
                 const base = chooseLocationBeaconFileName(beacon);
                 const filePath = normalizePath(`${beaconsFolder}/${base}.md`);
-                const macid = beacon?.assetInfo?.metadata?.props?.macAddress || null;
-                const result = await writeFileWithMacidTracking(app, filePath, md, macid);
+                const llMacid = beacon?.assetInfo?.metadata?.props?.macAddress || null; // LL_macid value from frontmatter
+                const result = await writeFileWithMacidTracking(app, filePath, md, llMacid);
                 if (result === 'created') summary.created += 1;
                 else if (result === 'updated') summary.updated += 1;
                 else summary.unchanged += 1;
@@ -170,8 +182,8 @@ export async function syncAll(app: App, settings: PluginSettings): Promise<SyncS
           const md = assetToMarkdown(asset, addressInfo, settings.customFields);
           const base = chooseBaseFileName(asset);
           const filePath = normalizePath(`${siteFolder}/${base}.md`);
-          const macid = asset.macAddress || null;
-          const result = await writeFileWithMacidTracking(app, filePath, md, macid);
+          const llMacid = asset.macAddress || null; // LL_macid value from frontmatter
+          const result = await writeFileWithMacidTracking(app, filePath, md, llMacid);
           if (result === 'created') summary.created += 1;
           else if (result === 'updated') summary.updated += 1;
           else summary.unchanged += 1;
