@@ -110,8 +110,6 @@ var LinkLabsSettingTab = class extends import_obsidian.PluginSettingTab {
   "assets": {
     "LL_temperature_f": "fahrenheit",
     "LL_humidity": "rel_humidity", 
-    "LL_geo_accuracy": "geoAccuracy",
-    "LL_low_voltage": "lowVoltageFlag",
     "LL_battery_status": "batteryStatus"
   },
   "locationBeacons": {
